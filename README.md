@@ -330,9 +330,26 @@ variables — Tailwind can only generate classes it can see at build time.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `FORKCHOP_DB_PATH` | `./data/forkchop.db` | SQLite location (`:memory:` works) |
+
 | `FORKCHOP_GROCERY_PROVIDER` | `mock` | Default provider id |
 | `INSTACART_API_KEY` | — | Connects the Instacart checkout option |
 | `WALMART_API_KEY` | — | Connects the Walmart+ checkout option |
+
+## Deploying
+
+The database is written to disk at startup, and serverless hosts mount the app
+on a read-only filesystem. `client.ts` detects that (`VERCEL`,
+`AWS_LAMBDA_FUNCTION_NAME`, `NETLIFY`, `FUNCTIONS_WORKER_RUNTIME`) and puts the
+file in the OS temp directory instead; any other unwritable location falls back
+there too, with a warning. So `vercel deploy` works with no configuration.
+
+An ephemeral database costs nothing here — it holds only seed data derived from
+files in the repo, and a full rebuild takes about 130 ms, so each cold start
+simply re-seeds. Set `FORKCHOP_DB_PATH` if you want it somewhere specific.
+
+Hosts that run a normal Node process with a real filesystem (Render, Railway,
+Fly) need nothing at all: the default `./data/forkchop.db` works as it does
+locally.
 
 ## Notes for later
 
