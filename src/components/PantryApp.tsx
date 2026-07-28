@@ -1,0 +1,634 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { Ingredient, MatchStatus, RecipeIngredient, RecipeMatch, ResolvedIngredient } from '@/lib/types';
+import { getServerSnapshot, getSnapshot, subscribe, updatePantryState } from '@/lib/pantry-store';
+import { PantryInput } from './PantryInput';
+import { FilterBar } from './FilterBar';
+import { AllergyFilter } from './AllergyFilter';
+import { DislikesInput } from './DislikesInput';
+import { StatsRow } from './StatsRow';
+import { PigMascot } from './PigMascot';
+import { RecipeCard, STATUS_LABEL } from './RecipeCard';
+import { RecipeDetail } from './RecipeDetail';
+import { BasketPanel, type BasketItem } from './BasketPanel';
+import { SiteHeader, type View } from './SiteHeader';
+import { FilterSection } from './FilterSection';
+import { ChipFilter, type ChipOption } from './ChipFilter';
+import { DIETS, MEAL_TYPES, REGIONS } from '@/lib/taxonomy';
+import type { Facets } from '@/lib/db/queries';
+import type { ProviderSummary } from '@/lib/grocery/types';
+
+interface RecommendationsResponse {
+  pantry: ResolvedIngredient[];
+  unrecognized: string[];
+  counts: {
+    total: number;
+    ready: number;
+    almost: number;
+    searched: number;
+    excluded: number;
+    corpus: number;
+  };
+  unlocks: { ingredient: RecipeIngredient; unlocks: number; recipes: string[] }[];
+  matches: RecipeMatch[];
+}
+
+const SECTION_ORDER: MatchStatus[] = ['ready', 'almost', 'stretch'];
+
+const SECTION_BLURB: Record<MatchStatus, string> = {
+  ready: 'You have everything you need for these.',
+  almost: 'A couple of items short — add them to your basket below.',
+  stretch: 'Further off, but they use what you already have.',
+};
+
+const SECTION_COLOR: Record<MatchStatus, string> = {
+  ready: 'var(--score-high)',
+  almost: 'var(--score-mid)',
+  stretch: 'var(--brand)',
+};
+
+const SECTION_SOFT: Record<MatchStatus, string> = {
+  ready: 'var(--score-high-soft)',
+  almost: 'var(--score-mid-soft)',
+  stretch: 'var(--brand-soft)',
+};
+
+export function PantryApp({
+  allTags,
+  ingredients,
+  facets,
+  providers,
+}: {
+  allTags: string[];
+  ingredients: Ingredient[];
+  facets: Facets;
+  providers: ProviderSummary[];
+}) {
+  // Persisted across reloads; see src/lib/pantry-store.ts.
+  const { pantry, assumeStaples, allergens, avoidSpicy, dislikes, saved } = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
+  );
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+  const [selectedMeals, setSelectedMeals] = useState<string[]>([]);
+  const [maxTotalMinutes, setMaxTotalMinutes] = useState<number | null>(null);
+  const [view, setView] = useState<View>('discover');
+
+  const [data, setData] = useState<RecommendationsResponse | null>(null);
+  const [savedMatches, setSavedMatches] = useState<RecipeMatch[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [basket, setBasket] = useState<Map<string, BasketItem>>(new Map());
+  const [openMatch, setOpenMatch] = useState<RecipeMatch | null>(null);
+
+  // Most recent request wins; earlier in-flight ones are aborted.
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    // Nothing to ask for. Any previous response stays in state but is never
+    // rendered, since every results block is gated on a non-empty pantry.
+    if (pantry.length === 0) return;
+
+    const timer = setTimeout(async () => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/recommendations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pantry,
+            assumeStaples,
+            excludeAllergens: allergens.length > 0 ? allergens : undefined,
+            dislikedIngredientIds: dislikes.length > 0 ? dislikes : undefined,
+            excludeSpicy: avoidSpicy || undefined,
+            tags: selectedTags.length > 0 ? selectedTags : undefined,
+            diets: selectedDiets.length > 0 ? selectedDiets : undefined,
+            regions: selectedRegions.length > 0 ? selectedRegions : undefined,
+            mealTypes: selectedMeals.length > 0 ? selectedMeals : undefined,
+            maxTotalMinutes: maxTotalMinutes ?? undefined,
+          }),
+          signal: controller.signal,
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? 'Could not fetch recommendations');
+        setData(json as RecommendationsResponse);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setError(err instanceof Error ? err.message : 'Something went wrong');
+      } finally {
+        setLoading(false);
+      }
+    }, 220);
+
+    return () => clearTimeout(timer);
+  }, [
+    pantry,
+    assumeStaples,
+    allergens,
+    avoidSpicy,
+    dislikes,
+    selectedTags,
+    selectedDiets,
+    selectedRegions,
+    selectedMeals,
+    maxTotalMinutes,
+  ]);
+
+  // Saved recipes are scored against the pantry but never filtered out — the
+  // user asked for these by name, so they always appear.
+  useEffect(() => {
+    if (view !== 'saved' || saved.length === 0) return;
+
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch('/api/saved', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slugs: saved, pantry, assumeStaples }),
+          signal: controller.signal,
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? 'Could not load your recipes');
+        setSavedMatches(json.matches as RecipeMatch[]);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setError(err instanceof Error ? err.message : 'Something went wrong');
+      }
+    })();
+
+    return () => controller.abort();
+  }, [view, saved, pantry, assumeStaples]);
+
+  const addToPantry = useCallback((value: string) => {
+    updatePantryState((current) =>
+      current.pantry.some((item) => item.toLowerCase() === value.toLowerCase())
+        ? current
+        : { ...current, pantry: [...current.pantry, value] },
+    );
+  }, []);
+
+  const removeFromPantry = useCallback((value: string) => {
+    updatePantryState((current) => ({
+      ...current,
+      pantry: current.pantry.filter((item) => item !== value),
+    }));
+  }, []);
+
+  const toggleBasket = useCallback((ingredient: RecipeIngredient, recipeTitle: string) => {
+    setBasket((current) => {
+      const next = new Map(current);
+      const existing = next.get(ingredient.id);
+
+      if (existing) {
+        // Second click on the same chip removes it; clicking it from a
+        // different recipe just records the extra reason it is needed.
+        if (existing.neededFor.includes(recipeTitle)) {
+          next.delete(ingredient.id);
+          return next;
+        }
+        next.set(ingredient.id, { ...existing, neededFor: [...existing.neededFor, recipeTitle] });
+        return next;
+      }
+
+      next.set(ingredient.id, {
+        ingredientId: ingredient.id,
+        name: ingredient.name,
+        quantity: ingredient.quantity,
+        unit: ingredient.unit,
+        category: ingredient.category,
+        neededFor: [recipeTitle],
+      });
+      return next;
+    });
+  }, []);
+
+  const addAllMissing = useCallback((match: RecipeMatch) => {
+    setBasket((current) => {
+      const next = new Map(current);
+      for (const ingredient of match.missing) {
+        const existing = next.get(ingredient.id);
+        const neededFor = existing
+          ? [...new Set([...existing.neededFor, match.recipe.title])]
+          : [match.recipe.title];
+        next.set(ingredient.id, {
+          ingredientId: ingredient.id,
+          name: ingredient.name,
+          quantity: ingredient.quantity,
+          unit: ingredient.unit,
+          category: ingredient.category,
+          neededFor,
+        });
+      }
+      return next;
+    });
+  }, []);
+
+  const basketIds = useMemo(() => new Set(basket.keys()), [basket]);
+  const basketItems = useMemo(() => [...basket.values()], [basket]);
+  const catalog = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients]);
+
+  const toggleAllergen = useCallback((id: string) => {
+    updatePantryState((current) => ({
+      ...current,
+      allergens: current.allergens.includes(id)
+        ? current.allergens.filter((a) => a !== id)
+        : [...current.allergens, id],
+    }));
+  }, []);
+
+  const addDislike = useCallback((id: string) => {
+    updatePantryState((current) =>
+      current.dislikes.includes(id)
+        ? current
+        : { ...current, dislikes: [...current.dislikes, id] },
+    );
+  }, []);
+
+  const removeDislike = useCallback((id: string) => {
+    updatePantryState((current) => ({
+      ...current,
+      dislikes: current.dislikes.filter((d) => d !== id),
+    }));
+  }, []);
+
+  const toggleSaved = useCallback((slug: string) => {
+    updatePantryState((current) => ({
+      ...current,
+      saved: current.saved.includes(slug)
+        ? current.saved.filter((s) => s !== slug)
+        : [...current.saved, slug],
+    }));
+  }, []);
+
+  const savedSet = useMemo(() => new Set(saved), [saved]);
+
+  /** Shared toggle for the multi-select chip filters. */
+  const toggle = useCallback(
+    (setter: React.Dispatch<React.SetStateAction<string[]>>, id: string) => {
+      setter((current) =>
+        current.includes(id) ? current.filter((v) => v !== id) : [...current, id],
+      );
+    },
+    [],
+  );
+
+  /**
+   * Filter options, annotated with how many recipes each would match. Options
+   * nothing matches are dropped, so nobody picks a filter that can only ever
+   * return an empty list.
+   */
+  const buildOptions = useCallback(
+    (
+      definitions: readonly { id: string; label: string; emoji: string }[],
+      counts: { id: string; count: number }[],
+    ): ChipOption[] => {
+      const byId = new Map(counts.map((c) => [c.id, c.count]));
+      return definitions
+        .filter((d) => (byId.get(d.id) ?? 0) > 0)
+        .map((d) => ({ id: d.id, label: d.label, emoji: d.emoji, count: byId.get(d.id) }));
+    },
+    [],
+  );
+
+  const dietOptions = useMemo(
+    () => buildOptions(DIETS, facets.diets),
+    [buildOptions, facets.diets],
+  );
+  const regionOptions = useMemo(
+    () => buildOptions(REGIONS, facets.regions),
+    [buildOptions, facets.regions],
+  );
+  const mealOptions = useMemo(
+    () => buildOptions(MEAL_TYPES, facets.mealTypes),
+    [buildOptions, facets.mealTypes],
+  );
+
+  const sections = useMemo(() => {
+    const grouped = new Map<MatchStatus, RecipeMatch[]>();
+    for (const match of data?.matches ?? []) {
+      const list = grouped.get(match.status) ?? [];
+      list.push(match);
+      grouped.set(match.status, list);
+    }
+    return grouped;
+  }, [data]);
+
+  return (
+    <>
+    <SiteHeader view={view} onViewChange={setView} savedCount={saved.length} />
+
+    <div className="mx-auto grid max-w-6xl gap-8 px-4 py-8 lg:grid-cols-[340px_1fr] lg:py-12">
+      {/*
+       * Sticky on desktop, and independently scrollable: with pantry, diet,
+       * region, meal, allergies, dislikes and style all present, the panel is
+       * taller than most viewports, and the bottom has to stay reachable.
+       */}
+      <aside
+        className="lg:sticky lg:top-28 lg:max-h-[calc(100vh-9rem)] lg:overflow-y-auto lg:overscroll-contain print:hidden"
+      >
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <PantryInput
+            pantry={pantry}
+            onAdd={addToPantry}
+            onRemove={removeFromPantry}
+            onClear={() => updatePantryState((current) => ({ ...current, pantry: [] }))}
+            unrecognized={data?.unrecognized ?? []}
+            resolved={data?.pantry ?? []}
+          />
+
+          <div className="mt-4 border-t border-border">
+            <FilterSection title="Diet" emoji="🥗" badge={selectedDiets.length}>
+              <ChipFilter
+                options={dietOptions}
+                selected={selectedDiets}
+                onToggle={(id) => toggle(setSelectedDiets, id)}
+                onClear={() => setSelectedDiets([])}
+                hint="These stack — pick two and a recipe must satisfy both."
+              />
+            </FilterSection>
+
+            <FilterSection title="Region" emoji="🌍" badge={selectedRegions.length}>
+              <ChipFilter
+                options={regionOptions}
+                selected={selectedRegions}
+                onToggle={(id) => toggle(setSelectedRegions, id)}
+                onClear={() => setSelectedRegions([])}
+                hint="Pick several to widen the search."
+              />
+            </FilterSection>
+
+            <FilterSection title="Meal" emoji="🍽️" badge={selectedMeals.length}>
+              <ChipFilter
+                options={mealOptions}
+                selected={selectedMeals}
+                onToggle={(id) => toggle(setSelectedMeals, id)}
+                onClear={() => setSelectedMeals([])}
+              />
+            </FilterSection>
+
+            <FilterSection title="Allergies" emoji="⚠️" badge={allergens.length}>
+              <AllergyFilter
+                selected={allergens}
+                onToggle={toggleAllergen}
+                onClear={() => updatePantryState((current) => ({ ...current, allergens: [] }))}
+              />
+            </FilterSection>
+
+            <FilterSection
+              title="Dislikes"
+              emoji="🚫"
+              badge={dislikes.length + (avoidSpicy ? 1 : 0)}
+            >
+              <DislikesInput
+                dislikes={dislikes}
+                catalog={catalog}
+                onAdd={addDislike}
+                onRemove={removeDislike}
+                avoidSpicy={avoidSpicy}
+                onAvoidSpicyChange={(value) =>
+                  updatePantryState((current) => ({ ...current, avoidSpicy: value }))
+                }
+              />
+            </FilterSection>
+
+            <FilterSection
+              title="Time &amp; style"
+              emoji="⏱️"
+              badge={selectedTags.length + (maxTotalMinutes ? 1 : 0)}
+              defaultOpen={false}
+            >
+              <FilterBar
+                allTags={allTags}
+                selectedTags={selectedTags}
+                onToggleTag={(tag) => toggle(setSelectedTags, tag)}
+                assumeStaples={assumeStaples}
+                onAssumeStaplesChange={(value) =>
+                  updatePantryState((current) => ({ ...current, assumeStaples: value }))
+                }
+                maxTotalMinutes={maxTotalMinutes}
+                onMaxTotalMinutesChange={setMaxTotalMinutes}
+              />
+            </FilterSection>
+          </div>
+        </div>
+      </aside>
+
+      <main className="min-w-0 pb-24">
+        {view === 'discover' && pantry.length > 0 && data && data.unrecognized.length > 0 && (
+          <div className="mb-6 rounded-xl border border-score-mid bg-score-mid-soft p-4 text-sm text-score-mid">
+            <p className="font-medium">
+              We don&apos;t recognise {data.unrecognized.map((u) => `"${u}"`).join(', ')} yet.
+            </p>
+            <p className="mt-1 text-xs">
+              They&apos;re not counted in the matches below. Try a simpler name, or a different word
+              for the same thing.
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div role="alert" className="mb-6 rounded-xl border border-score-mid bg-score-mid-soft p-4 text-sm text-score-mid">
+            {error}
+          </div>
+        )}
+
+        {view === 'saved' && (
+          <section>
+            <div className="mb-4">
+              <h2 className="text-2xl font-extrabold">My Recipes</h2>
+              <p className="text-sm text-muted">
+                {saved.length === 0
+                  ? 'Nothing saved yet.'
+                  : `${saved.length} saved recipe${saved.length === 1 ? '' : 's'}, scored against your pantry. Saved recipes always show, whatever your filters say.`}
+              </p>
+            </div>
+
+            {saved.length === 0 ? (
+              <div className="rounded-2xl border-2 border-dashed border-brand bg-brand-soft/40 p-10 text-center">
+                <div className="flex justify-center">
+                  <PigMascot size={80} mood="hungry" />
+                </div>
+                <h3 className="mt-3 text-lg font-bold">No saved recipes yet</h3>
+                <p className="mx-auto mt-1.5 max-w-md text-sm text-muted">
+                  Tap the 🤍 on any recipe to keep it here. Saved recipes stay in this browser.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setView('discover')}
+                  className="mt-4 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
+                >
+                  Find something to cook
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {savedMatches.map((match) => (
+                  <RecipeCard
+                    key={match.recipe.id}
+                    match={match}
+                    basket={basketIds}
+                    saved={savedSet.has(match.recipe.slug)}
+                    onOpen={setOpenMatch}
+                    onToggleBasket={toggleBasket}
+                    onToggleSaved={toggleSaved}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {view === 'discover' && pantry.length === 0 && (
+          <div className="rounded-2xl border-2 border-dashed border-brand bg-brand-soft/40 p-10 text-center">
+            <div className="flex justify-center">
+              <PigMascot size={88} mood="hungry" />
+            </div>
+            <h2 className="mt-3 text-xl font-bold">Start with what you&apos;ve got</h2>
+            <p className="mx-auto mt-1.5 max-w-md text-sm text-muted">
+              Add a few ingredients and ForkChop will find what you can cook tonight — plus the
+              recipes you&apos;re only an ingredient or two away from.
+            </p>
+          </div>
+        )}
+
+        {view === 'discover' && pantry.length > 0 && data && (
+          <>
+            <StatsRow
+              ready={data.counts.ready}
+              almost={data.counts.almost}
+              searched={data.counts.searched}
+              excluded={data.counts.excluded}
+              loading={loading}
+            />
+
+            {data.unlocks.length > 0 && (
+              <div className="mb-6 rounded-2xl border-2 border-brand bg-brand-soft p-4">
+                <p className="text-sm font-bold text-brand-strong">
+                  🐷 One more thing unlocks more dinners
+                </p>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  {data.unlocks.map((unlock) => (
+                    <button
+                      key={unlock.ingredient.id}
+                      type="button"
+                      onClick={() => toggleBasket(unlock.ingredient, unlock.recipes[0])}
+                      title={`Unlocks: ${unlock.recipes.join(', ')}`}
+                      className={`rounded-full border px-3 py-1 text-xs
+                        ${
+                          basketIds.has(unlock.ingredient.id)
+                            ? 'border-brand bg-brand text-white'
+                            : 'border-border bg-surface hover:border-brand hover:text-brand'
+                        }`}
+                    >
+                      {unlock.ingredient.name}
+                      <span className="ml-1.5 opacity-70">
+                        +{unlock.unlocks} recipe{unlock.unlocks === 1 ? '' : 's'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {data.matches.length === 0 && !loading && (
+              <div className="rounded-2xl border-2 border-dashed border-border p-10 text-center">
+                <div className="flex justify-center">
+                  <PigMascot size={72} mood="sad" />
+                </div>
+                <h3 className="mt-3 font-bold">No matches with these filters</h3>
+                <p className="mt-1.5 text-sm text-muted">
+                  {data.counts.excluded > 0
+                    ? `${data.counts.excluded} recipes are hidden by your allergy and dislike settings. Try relaxing those, the time limit, or add another ingredient.`
+                    : 'Try relaxing the time limit or diet filters, or add another ingredient.'}
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-10">
+              {SECTION_ORDER.map((status) => {
+                const matches = sections.get(status);
+                if (!matches || matches.length === 0) return null;
+
+                return (
+                  <section key={status}>
+                    <div className="mb-3">
+                      <h3 className="flex items-center gap-2 text-lg font-bold">
+                        <span
+                          className="inline-block size-3 rounded-full"
+                          style={{ backgroundColor: SECTION_COLOR[status] }}
+                          aria-hidden
+                        />
+                        {STATUS_LABEL[status]}
+                        <span
+                          className="rounded-full px-2 py-0.5 text-xs font-bold tabular-nums"
+                          style={{
+                            backgroundColor: SECTION_SOFT[status],
+                            color: SECTION_COLOR[status],
+                          }}
+                        >
+                          {matches.length}
+                        </span>
+                      </h3>
+                      <p className="text-sm text-muted">{SECTION_BLURB[status]}</p>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {matches.map((match) => (
+                        <RecipeCard
+                          key={match.recipe.id}
+                          match={match}
+                          basket={basketIds}
+                          saved={savedSet.has(match.recipe.slug)}
+                          onOpen={setOpenMatch}
+                          onToggleBasket={toggleBasket}
+                          onToggleSaved={toggleSaved}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </main>
+
+      {openMatch && (
+        <RecipeDetail
+          match={openMatch}
+          basket={basketIds}
+          saved={savedSet.has(openMatch.recipe.slug)}
+          onClose={() => setOpenMatch(null)}
+          onToggleBasket={toggleBasket}
+          onAddAllMissing={addAllMissing}
+          onToggleSaved={toggleSaved}
+        />
+      )}
+
+      <BasketPanel
+        items={basketItems}
+        providers={providers}
+        onRemove={(id) =>
+          setBasket((current) => {
+            const next = new Map(current);
+            next.delete(id);
+            return next;
+          })
+        }
+        onClear={() => setBasket(new Map())}
+      />
+    </div>
+    </>
+  );
+}

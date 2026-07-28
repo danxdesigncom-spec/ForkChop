@@ -1,26 +1,188 @@
 @import "tailwindcss";
 
+/*
+ * ForkChop's palette: pink-forward, pig-themed, warm.
+ * Light and dark are both first-class — every surface reads off these tokens,
+ * so nothing hardcodes a hex value.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --background: #fff5f8;
+  --surface: #ffffff;
+  --surface-muted: #fdeaf1;
+  --foreground: #2c1a21;
+  --muted: #8c6b76;
+  --border: #f6d8e3;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --brand: #e04a86;
+  --brand-strong: #bd2f68;
+  --brand-soft: #fde4ee;
+
+  /* Coverage traffic light — how much of a recipe you actually have. */
+  --score-high: #14804a;
+  --score-high-soft: #dff5e8;
+  --score-mid: #b06a05;
+  --score-mid-soft: #fdf0d9;
+  --score-low: #c8342f;
+  --score-low-soft: #fde6e4;
+
+  /* Cartoon pig */
+  --pig-body: #f9a8c8;
+  --pig-dark: #ef7fae;
+  --pig-inner: #fbc3d9;
+  --pig-snout: #f286b3;
+  --pig-blush: #ee6fa4;
+  --pig-ink: #7a2447;
+
+  /* Ingredient category accents */
+  --cat-produce: #2f8f4e;
+  --cat-produce-soft: #e2f4e7;
+  --cat-protein: #c8453f;
+  --cat-protein-soft: #fbe6e5;
+  --cat-dairy: #2f6fb5;
+  --cat-dairy-soft: #e2edfa;
+  --cat-grain: #a6720c;
+  --cat-grain-soft: #fbf0d9;
+  --cat-bakery: #b8560f;
+  --cat-bakery-soft: #fceadb;
+  --cat-pantry: #7c4bb8;
+  --cat-pantry-soft: #efe7fa;
+  --cat-spice: #b23c78;
+  --cat-spice-soft: #fbe5f1;
+  --cat-condiment: #17756e;
+  --cat-condiment-soft: #ddf2f0;
+  --cat-other: #6b6169;
+  --cat-other-soft: #f0ecee;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #1a1016;
+    --surface: #251820;
+    --surface-muted: #33202b;
+    --foreground: #fbeef4;
+    --muted: #bb98a7;
+    --border: #422a37;
+
+    --brand: #ff8ab8;
+    --brand-strong: #ffa8ca;
+    --brand-soft: #3f1e2e;
+
+    --score-high: #4ade80;
+    --score-high-soft: #16321f;
+    --score-mid: #fbbf24;
+    --score-mid-soft: #35270c;
+    --score-low: #fb7185;
+    --score-low-soft: #3a1a1f;
+
+    --pig-body: #f4a0c2;
+    --pig-dark: #e07aa6;
+    --pig-inner: #f9bcd4;
+    --pig-snout: #ec7fae;
+    --pig-blush: #e2699c;
+    --pig-ink: #4a1229;
+
+    --cat-produce: #6ee7a0;
+    --cat-produce-soft: #16301f;
+    --cat-protein: #fca5a0;
+    --cat-protein-soft: #37201e;
+    --cat-dairy: #93c2f5;
+    --cat-dairy-soft: #1a2739;
+    --cat-grain: #f2c86a;
+    --cat-grain-soft: #33270f;
+    --cat-bakery: #f7a86d;
+    --cat-bakery-soft: #38220f;
+    --cat-pantry: #c3a3f2;
+    --cat-pantry-soft: #281c3a;
+    --cat-spice: #f39bc9;
+    --cat-spice-soft: #361a29;
+    --cat-condiment: #6fd6cb;
+    --cat-condiment-soft: #12302d;
+    --cat-other: #bdb2b9;
+    --cat-other-soft: #2c2429;
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+
+  --color-score-high: var(--score-high);
+  --color-score-high-soft: var(--score-high-soft);
+  --color-score-mid: var(--score-mid);
+  --color-score-mid-soft: var(--score-mid-soft);
+  --color-score-low: var(--score-low);
+  --color-score-low-soft: var(--score-low-soft);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Faint pig-snout polka texture. Sits behind everything at low opacity so the
+ * theme reads as playful without costing legibility.
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle at 1px 1px, var(--brand) 1px, transparent 0);
+  background-size: 28px 28px;
+  opacity: 0.05;
+}
+
+/* Visible focus everywhere, since this app is heavily keyboard-driven. */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/*
+ * Printing sends only the shopping list. Hiding everything else means the user
+ * gets a clean sheet of paper rather than the whole app, and the same box is
+ * what they would screenshot.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #forkchop-shopping-list,
+  #forkchop-shopping-list * {
+    visibility: visible;
+  }
+  #forkchop-shopping-list {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: none;
+    padding: 0;
+    color: #000;
+    background: #fff;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
