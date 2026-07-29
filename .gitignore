@@ -35,6 +35,12 @@ yarn-error.log*
 # ...but the template of variable NAMES is meant to be committed.
 !.env.example
 
+# supabase — CLI-local state, never a build artefact.
+# `supabase link` writes the linked project ref, pooler URL and server versions
+# to supabase/.temp/. All are per-developer and would just cause churn on every
+# clone; the pooler URL is also mildly sensitive.
+supabase/.temp/
+
 # vercel
 .vercel
 
