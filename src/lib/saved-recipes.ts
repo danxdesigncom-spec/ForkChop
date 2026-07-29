@@ -13,6 +13,8 @@
  * on next load without waiting for a round-trip.
  */
 
+import type { Recipe } from './types';
+
 export interface SyncResult {
   slugs: string[];
   error: string | null;
@@ -49,12 +51,19 @@ export async function mergeLocalIntoAccount(localSlugs: string[]): Promise<SyncR
   }
 }
 
-export async function addSavedRecipe(slug: string): Promise<SyncResult> {
+export async function addSavedRecipe(slug: string, recipe?: Recipe): Promise<SyncResult> {
   try {
+    // External recipes carry a snapshot so My Recipes can render them later
+    // without re-fetching — no quota cost, and it survives the provider being
+    // down. Local recipes are read from the bundled corpus instead.
+    const sourceId = recipe?.sourceId ?? 'local';
+    const body =
+      sourceId === 'local' ? { slug } : { slug, sourceId, snapshot: recipe };
+
     const response = await fetch('/api/saved-recipes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug }),
+      body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(String(response.status));
     return { slugs: await readSlugs(response), error: null };

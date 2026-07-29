@@ -1,6 +1,6 @@
 'use client';
 
-import type { RecipeIngredient, RecipeMatch, MatchStatus } from '@/lib/types';
+import type { Recipe, RecipeIngredient, RecipeMatch, MatchStatus } from '@/lib/types';
 import { formatMinutes } from '@/lib/format';
 import { categoryColor } from '@/lib/theme';
 import { MatchRing } from './MatchRing';
@@ -24,7 +24,7 @@ interface Props {
   saved: boolean;
   onOpen: (match: RecipeMatch) => void;
   onToggleBasket: (ingredient: RecipeIngredient, recipeTitle: string) => void;
-  onToggleSaved: (slug: string) => void;
+  onToggleSaved: (slug: string, recipe?: Recipe) => void;
 }
 
 export function RecipeCard({
@@ -55,13 +55,24 @@ export function RecipeCard({
     >
       <div className="flex flex-1 cursor-pointer flex-col p-4">
         <div className="flex items-start gap-3">
-          <span
-            className="flex size-11 shrink-0 items-center justify-center rounded-xl text-2xl"
-            style={{ backgroundColor: statusStyle.soft }}
-            aria-hidden
-          >
-            {recipe.emoji}
-          </span>
+          {recipe.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={recipe.imageUrl}
+              alt=""
+              loading="lazy"
+              className="size-11 shrink-0 rounded-xl object-cover"
+              style={{ backgroundColor: statusStyle.soft }}
+            />
+          ) : (
+            <span
+              className="flex size-11 shrink-0 items-center justify-center rounded-xl text-2xl"
+              style={{ backgroundColor: statusStyle.soft }}
+              aria-hidden
+            >
+              {recipe.emoji}
+            </span>
+          )}
 
           <div className="min-w-0 flex-1">
             <h3 className="font-semibold leading-tight">
@@ -84,7 +95,7 @@ export function RecipeCard({
             {/* Above the stretched link, so saving never opens the recipe. */}
             <button
               type="button"
-              onClick={() => onToggleSaved(recipe.slug)}
+              onClick={() => onToggleSaved(recipe.slug, recipe)}
               aria-pressed={saved}
               aria-label={saved ? `Remove ${recipe.title} from My Recipes` : `Save ${recipe.title} to My Recipes`}
               title={saved ? 'Saved to My Recipes' : 'Save to My Recipes'}

@@ -18,8 +18,19 @@ export const dynamic = 'force-dynamic';
 
 const MAX_SAVED = 500;
 
+/**
+ * A saved external recipe carries a snapshot of itself. Local recipes do not:
+ * they are read from the bundled corpus, so storing a copy would only let the
+ * two drift apart.
+ */
+const SnapshotSchema = z.object({}).passthrough();
+
 const PostSchema = z.union([
-  z.object({ slug: z.string().min(1).max(128) }),
+  z.object({
+    slug: z.string().min(1).max(128),
+    sourceId: z.string().min(1).max(32).optional(),
+    snapshot: SnapshotSchema.optional(),
+  }),
   z.object({ merge: z.array(z.string().min(1).max(128)).max(MAX_SAVED) }),
 ]);
 
@@ -35,13 +46,16 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from('saved_recipes')
-      .select('recipe_slug')
+      .select('recipe_slug, source_id, snapshot')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    return NextResponse.json({ slugs: (data ?? []).map((row) => row.recipe_slug) });
+    return NextResponse.json({
+      slugs: (data ?? []).map((row) => row.recipe_slug),
+      saved: data ?? [],
+    });
   } catch (error) {
     if (error instanceof UnauthorizedError) return unauthorized();
     return NextResponse.json({ error: 'Could not load your saved recipes.' }, { status: 500 });
@@ -72,28 +86,51 @@ export async function POST(request: Request) {
      * ignoreDuplicates makes it idempotent, so a repeated merge is harmless and
      * anything already saved keeps its original created_at.
      */
-    const slugs = 'merge' in parsed.data ? parsed.data.merge : [parsed.data.slug];
-    const unique = [...new Set(slugs)];
-
-    if (unique.length > 0) {
-      const { error } = await supabase
-        .from('saved_recipes')
-        .upsert(
-          unique.map((recipe_slug) => ({ user_id: user.id, recipe_slug })),
+    if ('merge' in parsed.data) {
+      const unique = [...new Set(parsed.data.merge)];
+      if (unique.length > 0) {
+        const { error } = await supabase.from('saved_recipes').upsert(
+          unique.map((recipe_slug) => ({ user_id: user.id, recipe_slug, source_id: 'local' })),
           { onConflict: 'user_id,recipe_slug', ignoreDuplicates: true },
         );
+        if (error) throw error;
+      }
+    } else {
+      const sourceId = parsed.data.sourceId ?? 'local';
+
+      // The database enforces this too, but failing here gives a usable message
+      // rather than a constraint violation.
+      if (sourceId !== 'local' && !parsed.data.snapshot) {
+        return NextResponse.json(
+          { error: 'External recipes must be saved with a snapshot.' },
+          { status: 400 },
+        );
+      }
+
+      const { error } = await supabase.from('saved_recipes').upsert(
+        {
+          user_id: user.id,
+          recipe_slug: parsed.data.slug,
+          source_id: sourceId,
+          snapshot: sourceId === 'local' ? null : parsed.data.snapshot,
+        },
+        { onConflict: 'user_id,recipe_slug', ignoreDuplicates: true },
+      );
       if (error) throw error;
     }
 
     const { data, error } = await supabase
       .from('saved_recipes')
-      .select('recipe_slug')
+      .select('recipe_slug, source_id, snapshot')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    return NextResponse.json({ slugs: (data ?? []).map((row) => row.recipe_slug) });
+    return NextResponse.json({
+      slugs: (data ?? []).map((row) => row.recipe_slug),
+      saved: data ?? [],
+    });
   } catch (error) {
     if (error instanceof UnauthorizedError) return unauthorized();
     return NextResponse.json({ error: 'Could not save that recipe.' }, { status: 500 });

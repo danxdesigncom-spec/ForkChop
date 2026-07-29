@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAllRecipes } from '@/lib/db/queries';
+import { searchAllSources } from '@/lib/recipes';
 import { getLexicon } from '@/lib/matching/lexicon';
 import { resolvePantry } from '@/lib/matching/normalize';
 import { isExcluded, matchRecipes, suggestUnlocks } from '@/lib/matching/match';
@@ -48,13 +48,27 @@ export async function POST(request: Request) {
   // unknown ingredient is visible instead of mysteriously ignored.
   const unrecognized = resolved.filter((r) => r.ingredientId === null).map((r) => r.raw);
 
-  const allRecipes = getAllRecipes();
+  const pantryIngredientIds = recognized.map((r) => r.ingredientId!);
 
-  const matches = matchRecipes(
-    allRecipes,
-    recognized.map((r) => r.ingredientId!),
-    { ...options, limit: options.limit ?? 40 },
-  );
+  /**
+   * This route is the server-side proxy for every recipe source. The browser
+   * never talks to Spoonacular, and SPOONACULAR_API_KEY never leaves the
+   * server — it has no NEXT_PUBLIC_ prefix, so it cannot be inlined into the
+   * client bundle even by accident.
+   */
+  const { recipes: allRecipes, notices, sourcesUsed } = await searchAllSources({
+    pantryIngredientIds,
+    pantryIngredientNames: recognized.flatMap((r) => (r.name ? [r.name] : [])),
+    options,
+    limit: options.limit ?? 40,
+  });
+
+  // External recipes flow through exactly the same matcher as local ones, so
+  // every filter and the ready/almost/stretch grouping apply unchanged.
+  const matches = matchRecipes(allRecipes, pantryIngredientIds, {
+    ...options,
+    limit: options.limit ?? 40,
+  });
 
   // Surfaced so a suddenly short list is explainable rather than mysterious.
   const excluded = allRecipes.filter((r) => isExcluded(r, options)).length;
@@ -69,7 +83,10 @@ export async function POST(request: Request) {
       searched: allRecipes.length - excluded,
       excluded,
       corpus: allRecipes.length,
+      external: allRecipes.filter((r) => (r.sourceId ?? 'local') !== 'local').length,
     },
+    sourcesUsed,
+    notices,
     unlocks: suggestUnlocks(matches),
     matches,
   });

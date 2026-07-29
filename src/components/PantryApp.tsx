@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { Ingredient, MatchStatus, RecipeIngredient, RecipeMatch, ResolvedIngredient } from '@/lib/types';
+import type { Ingredient, MatchStatus, Recipe, RecipeIngredient, RecipeMatch, ResolvedIngredient } from '@/lib/types';
 import { getServerSnapshot, getSnapshot, subscribe, updatePantryState } from '@/lib/pantry-store';
 import { PantryInput } from './PantryInput';
 import { FilterBar } from './FilterBar';
@@ -35,7 +35,10 @@ interface RecommendationsResponse {
     searched: number;
     excluded: number;
     corpus: number;
+    external: number;
   };
+  sourcesUsed?: string[];
+  notices?: string[];
   unlocks: { ingredient: RecipeIngredient; unlocks: number; recipes: string[] }[];
   matches: RecipeMatch[];
 }
@@ -158,6 +161,19 @@ export function PantryApp({
     maxTotalMinutes,
   ]);
 
+  /**
+   * Snapshots of external recipes currently on screen, sent with /api/saved so
+   * saved Spoonacular recipes render without another API call.
+   */
+  const externalSnapshots = useMemo(() => {
+    const seen = new Map<string, Recipe>();
+    for (const match of [...(data?.matches ?? []), ...savedMatches]) {
+      const recipe = match.recipe;
+      if ((recipe.sourceId ?? 'local') !== 'local') seen.set(recipe.slug, recipe);
+    }
+    return [...seen.values()];
+  }, [data, savedMatches]);
+
   // Saved recipes are scored against the pantry but never filtered out — the
   // user asked for these by name, so they always appear.
   useEffect(() => {
@@ -169,7 +185,7 @@ export function PantryApp({
         const res = await fetch('/api/saved', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slugs: saved, pantry, assumeStaples }),
+          body: JSON.stringify({ slugs: saved, pantry, assumeStaples, snapshots: externalSnapshots }),
           signal: controller.signal,
         });
         const json = await res.json();
@@ -182,7 +198,7 @@ export function PantryApp({
     })();
 
     return () => controller.abort();
-  }, [view, saved, pantry, assumeStaples]);
+  }, [view, saved, pantry, assumeStaples, externalSnapshots]);
 
   const addToPantry = useCallback((value: string) => {
     updatePantryState((current) =>
@@ -284,7 +300,7 @@ export function PantryApp({
    * save is still valid on this device.
    */
   const toggleSaved = useCallback(
-    (slug: string) => {
+    (slug: string, recipe?: Recipe) => {
       const wasSaved = getSnapshot().saved.includes(slug);
 
       updatePantryState((current) => ({
@@ -297,7 +313,7 @@ export function PantryApp({
       if (!userEmail) return;
 
       void (async () => {
-        const result = wasSaved ? await removeSavedRecipe(slug) : await addSavedRecipe(slug);
+        const result = wasSaved ? await removeSavedRecipe(slug) : await addSavedRecipe(slug, recipe);
         if (result.error) {
           setSyncNotice(result.error);
           return;
@@ -501,6 +517,16 @@ export function PantryApp({
               They&apos;re not counted in the matches below. Try a simpler name, or a different word
               for the same thing.
             </p>
+          </div>
+        )}
+
+        {view === 'discover' && (data?.notices?.length ?? 0) > 0 && (
+          <div className="mb-6 rounded-xl border border-border bg-surface-muted p-4 text-sm">
+            {data!.notices!.map((notice) => (
+              <p key={notice} className="text-muted">
+                {notice}
+              </p>
+            ))}
           </div>
         )}
 

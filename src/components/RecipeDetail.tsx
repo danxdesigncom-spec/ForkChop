@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { RecipeIngredient, RecipeMatch } from '@/lib/types';
+import type { Recipe, RecipeIngredient, RecipeMatch } from '@/lib/types';
 import { formatAmount, formatMinutes } from '@/lib/format';
 import { STATUS_LABEL } from './RecipeCard';
 import { SpiceBadge } from './SpiceBadge';
@@ -13,7 +13,7 @@ interface Props {
   onClose: () => void;
   onToggleBasket: (ingredient: RecipeIngredient, recipeTitle: string) => void;
   onAddAllMissing: (match: RecipeMatch) => void;
-  onToggleSaved: (slug: string) => void;
+  onToggleSaved: (slug: string, recipe?: Recipe) => void;
 }
 
 export function RecipeDetail({
@@ -74,9 +74,19 @@ export function RecipeDetail({
                    bg-surface sm:rounded-2xl"
       >
         <header className="sticky top-0 flex items-start gap-3 border-b border-border bg-surface p-5">
-          <span className="text-4xl leading-none" aria-hidden>
-            {recipe.emoji}
-          </span>
+          {recipe.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={recipe.imageUrl}
+              alt=""
+              loading="lazy"
+              className="size-14 shrink-0 rounded-xl object-cover"
+            />
+          ) : (
+            <span className="text-4xl leading-none" aria-hidden>
+              {recipe.emoji}
+            </span>
+          )}
           <div className="min-w-0 flex-1">
             <h2 id="recipe-detail-title" className="text-xl font-semibold leading-tight">
               {recipe.title}
@@ -88,7 +98,7 @@ export function RecipeDetail({
           </div>
           <button
             type="button"
-            onClick={() => onToggleSaved(recipe.slug)}
+            onClick={() => onToggleSaved(recipe.slug, recipe)}
             aria-pressed={saved}
             className={`shrink-0 rounded-xl border-2 px-3 py-1.5 text-sm font-semibold transition-colors
               ${saved ? 'border-brand bg-brand-soft text-brand-strong' : 'border-border hover:border-brand hover:text-brand'}`}
