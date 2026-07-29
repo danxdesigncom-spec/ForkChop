@@ -90,6 +90,17 @@ export function getServerSnapshot(): PantryState {
   return DEFAULT_STATE;
 }
 
+/**
+ * Replace the saved list wholesale.
+ *
+ * Used when the account is the source of truth: the server's list overwrites
+ * the local one rather than being merged again client-side, so a removal made
+ * on another device actually sticks.
+ */
+export function setSavedRecipes(slugs: string[]): void {
+  updatePantryState((current) => ({ ...current, saved: slugs }));
+}
+
 export function updatePantryState(update: (current: PantryState) => PantryState): void {
   const next = update(getSnapshot());
   cachedState = next;

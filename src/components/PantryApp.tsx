@@ -13,6 +13,12 @@ import { RecipeCard, STATUS_LABEL } from './RecipeCard';
 import { RecipeDetail } from './RecipeDetail';
 import { BasketPanel, type BasketItem } from './BasketPanel';
 import { SiteHeader, type View } from './SiteHeader';
+import { setSavedRecipes } from '@/lib/pantry-store';
+import {
+  addSavedRecipe,
+  mergeLocalIntoAccount,
+  removeSavedRecipe,
+} from '@/lib/saved-recipes';
 import { FilterSection } from './FilterSection';
 import { ChipFilter, type ChipOption } from './ChipFilter';
 import { DIETS, MEAL_TYPES, REGIONS } from '@/lib/taxonomy';
@@ -59,11 +65,17 @@ export function PantryApp({
   ingredients,
   facets,
   providers,
+  userEmail,
+  authConfigured,
+  authSetupHint,
 }: {
   allTags: string[];
   ingredients: Ingredient[];
   facets: Facets;
   providers: ProviderSummary[];
+  userEmail: string | null;
+  authConfigured: boolean;
+  authSetupHint: string;
 }) {
   // Persisted across reloads; see src/lib/pantry-store.ts.
   const { pantry, assumeStaples, allergens, avoidSpicy, dislikes, saved } = useSyncExternalStore(
@@ -77,6 +89,8 @@ export function PantryApp({
   const [selectedMeals, setSelectedMeals] = useState<string[]>([]);
   const [maxTotalMinutes, setMaxTotalMinutes] = useState<number | null>(null);
   const [view, setView] = useState<View>('discover');
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   const [data, setData] = useState<RecommendationsResponse | null>(null);
   const [savedMatches, setSavedMatches] = useState<RecipeMatch[]>([]);
@@ -262,16 +276,60 @@ export function PantryApp({
     }));
   }, []);
 
-  const toggleSaved = useCallback((slug: string) => {
-    updatePantryState((current) => ({
-      ...current,
-      saved: current.saved.includes(slug)
-        ? current.saved.filter((s) => s !== slug)
-        : [...current.saved, slug],
-    }));
-  }, []);
+  /**
+   * Optimistic locally, then written through to the account when signed in.
+   *
+   * The local write happens first either way so the heart responds instantly;
+   * a failed sync surfaces a notice rather than silently reverting, since the
+   * save is still valid on this device.
+   */
+  const toggleSaved = useCallback(
+    (slug: string) => {
+      const wasSaved = getSnapshot().saved.includes(slug);
+
+      updatePantryState((current) => ({
+        ...current,
+        saved: wasSaved
+          ? current.saved.filter((s) => s !== slug)
+          : [...current.saved, slug],
+      }));
+
+      if (!userEmail) return;
+
+      void (async () => {
+        const result = wasSaved ? await removeSavedRecipe(slug) : await addSavedRecipe(slug);
+        if (result.error) {
+          setSyncNotice(result.error);
+          return;
+        }
+        // Adds return the canonical list; deletes do not, to save a round-trip.
+        if (result.slugs.length > 0) setSavedRecipes(result.slugs);
+      })();
+    },
+    [userEmail],
+  );
 
   const savedSet = useMemo(() => new Set(saved), [saved]);
+
+  /**
+   * On sign-in, fold this browser's saves into the account and adopt the
+   * account's list. Runs once per signed-in session, not on every render.
+   *
+   * Reads the saved list via getSnapshot() rather than closing over `saved`, so
+   * this effect does not re-run — and every recipe card does not re-render —
+   * each time a heart is toggled.
+   */
+  const mergedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!userEmail || mergedForRef.current === userEmail) return;
+    mergedForRef.current = userEmail;
+
+    void (async () => {
+      const result = await mergeLocalIntoAccount(getSnapshot().saved);
+      if (result.error) setSyncNotice(result.error);
+      setSavedRecipes(result.slugs);
+    })();
+  }, [userEmail]);
 
   /** Shared toggle for the multi-select chip filters. */
   const toggle = useCallback(
@@ -326,7 +384,16 @@ export function PantryApp({
 
   return (
     <>
-    <SiteHeader view={view} onViewChange={setView} savedCount={saved.length} />
+    <SiteHeader
+      view={view}
+      onViewChange={setView}
+      savedCount={saved.length}
+      userEmail={userEmail}
+      authConfigured={authConfigured}
+      authSetupHint={authSetupHint}
+      signInOpen={signInOpen}
+      onSignInOpenChange={setSignInOpen}
+    />
 
     <div className="mx-auto grid max-w-6xl gap-8 px-4 py-8 lg:grid-cols-[340px_1fr] lg:py-12">
       {/*
@@ -454,6 +521,38 @@ export function PantryApp({
               </p>
             </div>
 
+            {/*
+              Signed out, saves still work — they just live in this browser.
+              Prompting rather than gating keeps the feature usable while making
+              the benefit of an account concrete.
+            */}
+            {!userEmail && authConfigured && (
+              <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border-2 border-brand bg-brand-soft p-4">
+                <p className="min-w-0 flex-1 text-sm">
+                  <span className="font-bold text-brand-strong">Saved on this device only.</span>{' '}
+                  <span className="text-muted">
+                    Sign in and these come with you to any device.
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSignInOpen(true)}
+                  className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-strong"
+                >
+                  Sign in to sync
+                </button>
+              </div>
+            )}
+
+            {syncNotice && (
+              <p
+                role="status"
+                className="mb-4 rounded-xl border border-score-mid bg-score-mid-soft p-3 text-sm text-score-mid"
+              >
+                {syncNotice}
+              </p>
+            )}
+
             {saved.length === 0 ? (
               <div className="rounded-2xl border-2 border-dashed border-brand bg-brand-soft/40 p-10 text-center">
                 <div className="flex justify-center">
@@ -461,7 +560,10 @@ export function PantryApp({
                 </div>
                 <h3 className="mt-3 text-lg font-bold">No saved recipes yet</h3>
                 <p className="mx-auto mt-1.5 max-w-md text-sm text-muted">
-                  Tap the 🤍 on any recipe to keep it here. Saved recipes stay in this browser.
+                  Tap the 🤍 on any recipe to keep it here.{' '}
+                  {userEmail
+                    ? 'Saved recipes are tied to your account, so they follow you between devices.'
+                    : 'Saved recipes stay in this browser until you sign in.'}
                 </p>
                 <button
                   type="button"
