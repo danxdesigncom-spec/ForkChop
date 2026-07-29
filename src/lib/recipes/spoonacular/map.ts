@@ -51,6 +51,50 @@ export interface SpoonacularRecipe {
   missedIngredients?: SpoonacularIngredient[];
 }
 
+/**
+ * ForkChop speaks British English — the catalogue says aubergine, coriander,
+ * chilli. Spoonacular is American, so a card would otherwise read "Roasted
+ * Eggplant Hummus" directly above a "+ Aubergine" chip, which looks like a
+ * bug rather than a translation.
+ *
+ * Applied to titles and descriptions only, and only to food words. Whole-word
+ * and case-preserving, so "Eggplant Parmesan" becomes "Aubergine Parmesan"
+ * rather than mangling anything mid-word.
+ */
+const ANGLICISATIONS: [RegExp, string][] = [
+  [/\beggplants?\b/gi, 'aubergine'],
+  [/\bcilantro\b/gi, 'coriander'],
+  [/\bzucchini(s|es)?\b/gi, 'courgette'],
+  [/\bgarbanzo beans?\b/gi, 'chickpeas'],
+  [/\bscallions?\b/gi, 'spring onion'],
+  [/\barugula\b/gi, 'rocket'],
+  [/\bshrimps?\b/gi, 'prawns'],
+  [/\bchili\b/gi, 'chilli'],
+  [/\bconfectioners' sugar\b/gi, 'icing sugar'],
+  [/\bheavy cream\b/gi, 'double cream'],
+];
+
+function matchCase(replacement: string, original: string): string {
+  if (original === original.toUpperCase() && original.length > 1) return replacement.toUpperCase();
+  if (original[0] === original[0]?.toUpperCase()) {
+    return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
+export function anglicise(text: string): string {
+  let out = text;
+  for (const [pattern, replacement] of ANGLICISATIONS) {
+    out = out.replace(pattern, (match) => {
+      // Carry the plural across, or "two eggplants" becomes "two aubergine".
+      // Replacements that are already plural (chickpeas, prawns) are left alone.
+      const plural = /s$/i.test(match) && !/s$/i.test(replacement);
+      return matchCase(plural ? `${replacement}s` : replacement, match);
+    });
+  }
+  return out;
+}
+
 /** Spoonacular summaries are HTML with links; the app renders plain text. */
 export function stripHtml(input: string): string {
   return input
@@ -67,8 +111,8 @@ export function stripHtml(input: string): string {
 
 /** First sentence or two, so cards do not overflow. */
 export function toDescription(recipe: SpoonacularRecipe): string {
-  const summary = recipe.summary ? stripHtml(recipe.summary) : '';
-  if (!summary) return `${recipe.title} from Spoonacular.`;
+  const summary = recipe.summary ? anglicise(stripHtml(recipe.summary)) : '';
+  if (!summary) return `${anglicise(recipe.title)} from Spoonacular.`;
   const sentences = summary.split(/(?<=\.)\s+/).slice(0, 2).join(' ');
   return sentences.length > 240 ? `${sentences.slice(0, 237)}…` : sentences;
 }
@@ -204,7 +248,7 @@ export function mapSpoonacularRecipe(raw: SpoonacularRecipe, lexicon: Lexicon): 
   const recipe: Recipe = {
     id: `spoonacular-${raw.id}`,
     slug: `spoonacular-${raw.id}`,
-    title: raw.title.trim(),
+    title: anglicise(raw.title.trim()),
     description: toDescription(raw),
     cuisine: raw.cuisines?.[0] ?? 'Spoonacular',
     region: regionFromCuisines(raw.cuisines),

@@ -262,3 +262,43 @@ describe('dedupeRecipes', () => {
     expect(dedupeRecipes([a, b])).toHaveLength(1);
   });
 });
+
+// ------------------------------------------------------ British English
+
+import { anglicise } from '@/lib/recipes/spoonacular/map';
+
+describe('anglicise', () => {
+  it('translates American food words to the app’s vocabulary', () => {
+    expect(anglicise('eggplant')).toBe('aubergine');
+    expect(anglicise('cilantro')).toBe('coriander');
+    expect(anglicise('zucchini')).toBe('courgette');
+    expect(anglicise('garbanzo beans')).toBe('chickpeas');
+    expect(anglicise('shrimp')).toBe('prawns');
+  });
+
+  it('preserves capitalisation', () => {
+    // Otherwise a title would read "Roasted aubergine Hummus".
+    expect(anglicise('Roasted Eggplant Hummus')).toBe('Roasted Aubergine Hummus');
+    expect(anglicise('EGGPLANT')).toBe('AUBERGINE');
+  });
+
+  it('handles plurals', () => {
+    expect(anglicise('two eggplants')).toBe('two aubergines');
+  });
+
+  it('only matches whole words', () => {
+    expect(anglicise('chiliad')).toBe('chiliad');
+  });
+
+  it('leaves text with nothing to translate alone', () => {
+    expect(anglicise('Spaghetti Aglio e Olio')).toBe('Spaghetti Aglio e Olio');
+  });
+
+  it('is applied to mapped recipe titles', () => {
+    const recipe = mapSpoonacularRecipe(
+      baseRecipe({ title: 'Roasted Eggplant and Cilantro Salad' }),
+      lexicon,
+    )!;
+    expect(recipe.title).toBe('Roasted Aubergine and Coriander Salad');
+  });
+});
