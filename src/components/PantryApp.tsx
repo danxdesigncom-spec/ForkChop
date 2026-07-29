@@ -13,12 +13,19 @@ import { RecipeCard, STATUS_LABEL } from './RecipeCard';
 import { RecipeDetail } from './RecipeDetail';
 import { BasketPanel, type BasketItem } from './BasketPanel';
 import { SiteHeader, type View } from './SiteHeader';
-import { setSavedRecipes } from '@/lib/pantry-store';
+import { setPantryItems, setSavedRecipes } from '@/lib/pantry-store';
 import {
   addSavedRecipe,
   mergeLocalIntoAccount,
   removeSavedRecipe,
 } from '@/lib/saved-recipes';
+import {
+  addPantryItem,
+  clearPantry,
+  mergeLocalPantry,
+  removePantryItem,
+  type PantrySource,
+} from '@/lib/pantry-sync';
 import { FilterSection } from './FilterSection';
 import { ChipFilter, type ChipOption } from './ChipFilter';
 import { DIETS, MEAL_TYPES, REGIONS } from '@/lib/taxonomy';
@@ -200,20 +207,57 @@ export function PantryApp({
     return () => controller.abort();
   }, [view, saved, pantry, assumeStaples, externalSnapshots]);
 
-  const addToPantry = useCallback((value: string) => {
-    updatePantryState((current) =>
-      current.pantry.some((item) => item.toLowerCase() === value.toLowerCase())
-        ? current
-        : { ...current, pantry: [...current.pantry, value] },
-    );
-  }, []);
+  /**
+   * Local write first so the chip appears instantly, then a write-through to
+   * the account when signed in. A failed sync surfaces a notice rather than
+   * reverting — the item is still valid on this device.
+   */
+  const addToPantry = useCallback(
+    (value: string, source: PantrySource = 'typed', barcode?: string) => {
+      const alreadyThere = getSnapshot().pantry.some(
+        (item) => item.toLowerCase() === value.toLowerCase(),
+      );
 
-  const removeFromPantry = useCallback((value: string) => {
-    updatePantryState((current) => ({
-      ...current,
-      pantry: current.pantry.filter((item) => item !== value),
-    }));
-  }, []);
+      updatePantryState((current) =>
+        alreadyThere ? current : { ...current, pantry: [...current.pantry, value] },
+      );
+
+      if (alreadyThere || !userEmail) return;
+
+      void (async () => {
+        const result = await addPantryItem(value, source, barcode);
+        if (result.error) setSyncNotice(result.error);
+        else setPantryItems(result.pantry);
+      })();
+    },
+    [userEmail],
+  );
+
+  const removeFromPantry = useCallback(
+    (value: string) => {
+      updatePantryState((current) => ({
+        ...current,
+        pantry: current.pantry.filter((item) => item !== value),
+      }));
+
+      if (!userEmail) return;
+
+      void (async () => {
+        const result = await removePantryItem(value);
+        if (result.error) setSyncNotice(result.error);
+      })();
+    },
+    [userEmail],
+  );
+
+  const clearWholePantry = useCallback(() => {
+    updatePantryState((current) => ({ ...current, pantry: [] }));
+    if (!userEmail) return;
+    void (async () => {
+      const result = await clearPantry();
+      if (result.error) setSyncNotice(result.error);
+    })();
+  }, [userEmail]);
 
   const toggleBasket = useCallback((ingredient: RecipeIngredient, recipeTitle: string) => {
     setBasket((current) => {
@@ -341,9 +385,16 @@ export function PantryApp({
     mergedForRef.current = userEmail;
 
     void (async () => {
-      const result = await mergeLocalIntoAccount(getSnapshot().saved);
-      if (result.error) setSyncNotice(result.error);
-      setSavedRecipes(result.slugs);
+      const [recipes, pantry] = await Promise.all([
+        mergeLocalIntoAccount(getSnapshot().saved),
+        mergeLocalPantry(getSnapshot().pantry),
+      ]);
+
+      if (recipes.error) setSyncNotice(recipes.error);
+      setSavedRecipes(recipes.slugs);
+
+      if (pantry.error) setSyncNotice(pantry.error);
+      else setPantryItems(pantry.pantry);
     })();
   }, [userEmail]);
 
@@ -425,7 +476,7 @@ export function PantryApp({
             pantry={pantry}
             onAdd={addToPantry}
             onRemove={removeFromPantry}
-            onClear={() => updatePantryState((current) => ({ ...current, pantry: [] }))}
+            onClear={clearWholePantry}
             unrecognized={data?.unrecognized ?? []}
             resolved={data?.pantry ?? []}
           />

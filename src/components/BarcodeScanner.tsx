@@ -3,141 +3,168 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ResolvedIngredient } from '@/lib/types';
 import { useClientCapability } from '@/lib/use-client-capability';
+import {
+  createDetector,
+  hasCameraSupport,
+  isValidBarcode,
+  plannedBackend,
+  type BarcodeDetectorHandle,
+  type DetectorBackend,
+} from '@/lib/barcode/detector';
 
 /**
  * Scan a product barcode with the device camera.
  *
- * Detection uses the native BarcodeDetector API (Chrome, Edge, Android). Where
- * that is missing — Safari and Firefox today — the camera is skipped entirely
- * and the panel falls back to typing the number off the packet, which is slower
- * but works everywhere.
+ * Detection prefers the browser's native BarcodeDetector and falls back to
+ * ZXing, loaded on demand, so iOS Safari and Firefox work too. Where the camera
+ * itself is unavailable or refused, the panel still accepts the number typed
+ * off the packet — every route ends in the same lookup.
  *
- * The lookup itself happens server-side in /api/barcode.
+ * The lookup runs server-side in /api/barcode: Open Food Facts requires a
+ * custom User-Agent, which browsers are not permitted to set.
  */
-
-interface DetectedBarcode {
-  rawValue: string;
-}
-interface BarcodeDetectorLike {
-  detect(source: CanvasImageSource): Promise<DetectedBarcode[]>;
-}
-type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
-
-function getDetectorCtor(): BarcodeDetectorCtor | null {
-  if (typeof window === 'undefined') return null;
-  return (window as unknown as { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector ?? null;
-}
 
 interface LookupResult {
   code: string;
   found: boolean;
-  product: { name: string | null; brand: string | null; quantity: string | null } | null;
+  product: {
+    name: string | null;
+    brand: string | null;
+    quantity: string | null;
+    imageUrl: string | null;
+  } | null;
   ingredient: ResolvedIngredient | null;
   resolvedFrom: string | null;
 }
 
+/**
+ * Why the camera is not running. Each maps to different advice, which is the
+ * whole point of distinguishing them — "blocked" needs a settings change,
+ * "unsupported" does not.
+ */
+type CameraState =
+  | { kind: 'starting' }
+  | { kind: 'running'; backend: DetectorBackend }
+  | { kind: 'loading-decoder' }
+  | { kind: 'blocked' }
+  | { kind: 'no-camera' }
+  | { kind: 'unsupported' }
+  | { kind: 'failed'; message: string };
+
 interface Props {
   onClose: () => void;
-  /** Called with the canonical ingredient name once a scan resolves. */
-  onAdd: (value: string) => void;
+  /** Called with the ingredient name and the barcode it came from. */
+  onAdd: (value: string, barcode: string) => void;
 }
 
 export function BarcodeScanner({ onClose, onAdd }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scanTimerRef = useRef<number | null>(null);
+  const detectorRef = useRef<BarcodeDetectorHandle | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const busyRef = useRef(false);
 
-  // Detector availability is a static browser fact; camera access is a runtime
-  // permission. Keeping them separate means the effect never has to setState
-  // synchronously just to report "this browser can't do it".
-  const detectorSupported = useClientCapability(
-    () => getDetectorCtor() !== null && Boolean(navigator.mediaDevices?.getUserMedia),
-  );
-  const [cameraReady, setCameraReady] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
+  const cameraAvailable = useClientCapability(hasCameraSupport);
+
+  const [camera, setCamera] = useState<CameraState>({ kind: 'starting' });
   const [manualCode, setManualCode] = useState('');
+  const [manualError, setManualError] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'looking-up'>('idle');
   const [result, setResult] = useState<LookupResult | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
 
-  const lookup = useCallback(async (code: string) => {
-    setStatus('looking-up');
-    setLookupError(null);
-    setResult(null);
-    try {
-      const res = await fetch(`/api/barcode?code=${encodeURIComponent(code)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Lookup failed');
-      setResult(data as LookupResult);
-    } catch (err) {
-      setLookupError(err instanceof Error ? err.message : 'Lookup failed');
-    } finally {
-      setStatus('idle');
-    }
-  }, []);
-
   const stopCamera = useCallback(() => {
-    if (scanTimerRef.current !== null) {
-      window.clearInterval(scanTimerRef.current);
-      scanTimerRef.current = null;
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
     }
+    detectorRef.current?.dispose();
+    detectorRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }, []);
 
-  useEffect(() => {
-    // Nothing to start where the browser has no detector — the panel renders
-    // its manual-entry fallback instead.
-    if (!detectorSupported) return;
+  const lookup = useCallback(
+    async (code: string) => {
+      stopCamera();
+      setStatus('looking-up');
+      setLookupError(null);
+      setResult(null);
+      try {
+        const response = await fetch(`/api/barcode?code=${encodeURIComponent(code)}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? 'Lookup failed');
+        setResult(data as LookupResult);
+      } catch (error) {
+        setLookupError(error instanceof Error ? error.message : 'Lookup failed');
+      } finally {
+        setStatus('idle');
+      }
+    },
+    [stopCamera],
+  );
 
-    const Detector = getDetectorCtor();
-    if (!Detector) return;
+  useEffect(() => {
+    // Nothing to start. The unsupported state is derived below rather than
+    // set here, so the effect never has to setState synchronously.
+    if (!cameraAvailable) return;
 
     let cancelled = false;
 
     (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
+          video: { facingMode: { ideal: 'environment' } },
         });
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
         streamRef.current = stream;
-        setCameraReady(true);
+
+        // Fetching ZXing can take a moment on a phone connection; say so rather
+        // than showing a frozen "starting camera".
+        if (plannedBackend() === 'zxing') setCamera({ kind: 'loading-decoder' });
+
+        const detector = await createDetector();
+        if (cancelled) {
+          detector.dispose();
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        detectorRef.current = detector;
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
         }
+        setCamera({ kind: 'running', backend: detector.backend });
 
-        const detector = new Detector({
-          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'],
-        });
-
-        // Polling beats requestAnimationFrame here: detection is the expensive
-        // part and four checks a second is plenty to feel instant.
-        scanTimerRef.current = window.setInterval(async () => {
+        timerRef.current = window.setInterval(async () => {
           const video = videoRef.current;
-          if (!video || video.readyState < 2) return;
+          if (!video || video.readyState < 2 || busyRef.current) return;
+
+          // ZXing decoding is far slower than a poll tick; without this guard
+          // frames pile up and the UI stutters.
+          busyRef.current = true;
           try {
-            const codes = await detector.detect(video);
-            if (codes.length > 0 && codes[0].rawValue) {
-              stopCamera();
-              void lookup(codes[0].rawValue);
-            }
+            const code = await detectorRef.current?.detect(video);
+            if (code && isValidBarcode(code)) void lookup(code);
           } catch {
-            // A single failed frame is not worth surfacing.
+            // A single bad frame is not worth surfacing.
+          } finally {
+            busyRef.current = false;
           }
-        }, 250);
-      } catch (err) {
+        }, 300);
+      } catch (error) {
         if (cancelled) return;
-        setCameraReady(false);
-        setCameraError(
-          err instanceof DOMException && err.name === 'NotAllowedError'
-            ? 'Camera access was blocked. Allow it in your browser settings, or type the number below.'
-            : 'No camera available — type the barcode number below.',
+        const name = error instanceof DOMException ? error.name : '';
+        setCamera(
+          name === 'NotAllowedError' || name === 'SecurityError'
+            ? { kind: 'blocked' }
+            : name === 'NotFoundError' || name === 'OverconstrainedError'
+              ? { kind: 'no-camera' }
+              : { kind: 'failed', message: 'Could not start the camera.' },
         );
       }
     })();
@@ -146,7 +173,7 @@ export function BarcodeScanner({ onClose, onAdd }: Props) {
       cancelled = true;
       stopCamera();
     };
-  }, [detectorSupported, lookup, stopCamera]);
+  }, [cameraAvailable, lookup, stopCamera]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -156,10 +183,38 @@ export function BarcodeScanner({ onClose, onAdd }: Props) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  const accept = (name: string) => {
-    onAdd(name);
+  const accept = (name: string, barcode: string) => {
+    onAdd(name, barcode);
     onClose();
   };
+
+  const submitManual = (event: React.FormEvent) => {
+    event.preventDefault();
+    const code = manualCode.trim();
+    if (!isValidBarcode(code)) {
+      setManualError('A barcode is 8 to 14 digits, with no spaces.');
+      return;
+    }
+    setManualError(null);
+    void lookup(code);
+  };
+
+  /**
+   * A browser with no camera API can never leave 'unsupported', so it is
+   * derived from the capability rather than stored.
+   */
+  const cameraState: CameraState = cameraAvailable ? camera : { kind: 'unsupported' };
+
+  const cameraNotice: string | null =
+    cameraState.kind === 'blocked'
+      ? 'Camera access was blocked. Allow it in your browser settings, or type the number below.'
+      : cameraState.kind === 'no-camera'
+        ? 'No camera found on this device — type the number printed under the barcode.'
+        : cameraState.kind === 'unsupported'
+          ? 'This browser cannot open a camera. Type the number printed under the barcode.'
+          : cameraState.kind === 'failed'
+            ? `${cameraState.message} Type the number below instead.`
+            : null;
 
   return (
     <div
@@ -189,53 +244,73 @@ export function BarcodeScanner({ onClose, onAdd }: Props) {
         </header>
 
         <div className="p-4">
-          {detectorSupported && !cameraReady && !cameraError && !result && (
-            <p className="py-6 text-center text-sm text-muted">Starting camera…</p>
-          )}
-
-          {detectorSupported && cameraReady && !result && (
-            <div className="relative overflow-hidden rounded-xl bg-black">
-              <video ref={videoRef} playsInline muted className="h-56 w-full object-cover" />
-              <div
-                className="pointer-events-none absolute inset-x-6 top-1/2 h-24 -translate-y-1/2 rounded-lg border-2 border-white/80"
-                aria-hidden
-              />
-            </div>
-          )}
-
-          {(!detectorSupported || cameraError) && !result && (
-            <p className="rounded-xl bg-surface-muted p-3 text-xs text-muted">
-              {cameraError ??
-                'Live scanning needs the BarcodeDetector API, which this browser does not have. Type the number printed under the barcode instead.'}
-            </p>
-          )}
-
           {!result && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (manualCode.trim()) void lookup(manualCode.trim());
-              }}
-              className="mt-3 flex gap-2"
-            >
-              <input
-                type="text"
-                inputMode="numeric"
-                value={manualCode}
-                onChange={(e) => setManualCode(e.target.value)}
-                placeholder="Or type the barcode number"
-                className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-2 text-sm
-                           placeholder:text-muted focus:border-brand focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={status === 'looking-up' || !manualCode.trim()}
-                className="rounded-xl bg-brand px-3 py-2 text-sm font-semibold text-white
-                           hover:bg-brand-strong disabled:opacity-50"
-              >
-                {status === 'looking-up' ? '…' : 'Look up'}
-              </button>
-            </form>
+            <>
+              {(cameraState.kind === 'starting' || cameraState.kind === 'loading-decoder') && (
+                <p className="py-6 text-center text-sm text-muted" aria-live="polite">
+                  {cameraState.kind === 'loading-decoder'
+                    ? 'Loading the barcode reader…'
+                    : 'Starting camera…'}
+                </p>
+              )}
+
+              {/* Kept mounted whenever the camera might run: the ref must exist
+                  before play() is called. */}
+              <div className={cameraState.kind === 'running' ? 'block' : 'hidden'}>
+                <div className="relative overflow-hidden rounded-xl bg-black">
+                  <video ref={videoRef} playsInline muted className="h-56 w-full object-cover" />
+                  <div
+                    className="pointer-events-none absolute inset-x-6 top-1/2 h-24 -translate-y-1/2 rounded-lg border-2 border-white/80"
+                    aria-hidden
+                  />
+                </div>
+                <p className="mt-1.5 text-center text-xs text-muted">
+                  Hold the barcode inside the frame
+                  {cameraState.kind === 'running' && cameraState.backend === 'zxing' && ' — this may take a moment'}
+                </p>
+              </div>
+
+              {cameraNotice && (
+                <p className="rounded-xl bg-surface-muted p-3 text-xs text-muted">{cameraNotice}</p>
+              )}
+
+              {status === 'looking-up' && (
+                <p className="py-4 text-center text-sm text-muted" aria-live="polite">
+                  Looking that up…
+                </p>
+              )}
+
+              <form onSubmit={submitManual} className="mt-3 flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={manualCode}
+                  onChange={(e) => {
+                    setManualCode(e.target.value);
+                    setManualError(null);
+                  }}
+                  placeholder="Or type the barcode number"
+                  aria-label="Barcode number"
+                  aria-invalid={manualError ? true : undefined}
+                  className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-2 text-sm
+                             placeholder:text-muted focus:border-brand focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={status === 'looking-up' || !manualCode.trim()}
+                  className="rounded-xl bg-brand px-3 py-2 text-sm font-semibold text-white
+                             hover:bg-brand-strong disabled:opacity-50"
+                >
+                  Look up
+                </button>
+              </form>
+
+              {manualError && (
+                <p role="alert" className="mt-1.5 text-xs text-score-low">
+                  {manualError}
+                </p>
+              )}
+            </>
           )}
 
           {lookupError && (
@@ -245,55 +320,11 @@ export function BarcodeScanner({ onClose, onAdd }: Props) {
           )}
 
           {result && (
-            <div className="mt-1">
-              {result.ingredient?.name ? (
-                <>
-                  <p className="text-sm text-muted">
-                    Scanned <span className="font-mono text-xs">{result.code}</span>
-                    {result.product?.name ? ` — ${result.product.name}` : ''}
-                  </p>
-                  <p className="mt-2 text-lg font-bold">{result.ingredient.name}</p>
-                  {result.resolvedFrom && (
-                    <p className="text-xs text-muted">matched on “{result.resolvedFrom}”</p>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => accept(result.ingredient!.name!)}
-                    className="mt-3 w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
-                  >
-                    Add {result.ingredient.name} to pantry
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm">
-                    {result.found
-                      ? `Found "${result.product?.name ?? 'that product'}", but we couldn't match it to an ingredient we know.`
-                      : `Barcode ${result.code} isn't in the product database.`}
-                  </p>
-                  {result.found && result.product?.name && (
-                    <button
-                      type="button"
-                      onClick={() => accept(result.product!.name!)}
-                      className="mt-3 w-full rounded-xl border-2 border-brand px-4 py-2.5 text-sm font-semibold text-brand hover:bg-brand-soft"
-                    >
-                      Add it as “{result.product.name}” anyway
-                    </button>
-                  )}
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setResult(null);
-                  setManualCode('');
-                }}
-                className="mt-2 w-full rounded-xl border border-border px-4 py-2 text-sm text-muted hover:border-brand hover:text-brand"
-              >
-                Scan another
-              </button>
-            </div>
+            <ScanResult
+              result={result}
+              onAccept={(name) => accept(name, result.code)}
+              onAgain={() => setResult(null)}
+            />
           )}
 
           <p className="mt-3 text-xs text-muted">
@@ -302,6 +333,87 @@ export function BarcodeScanner({ onClose, onAdd }: Props) {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Outcome of a lookup.
+ *
+ * Three cases, each with a different next step: we know the ingredient, we know
+ * the product but not the ingredient, or the barcode is simply unknown. The
+ * last two still let the user add something rather than dead-ending.
+ */
+function ScanResult({
+  result,
+  onAccept,
+  onAgain,
+}: {
+  result: LookupResult;
+  onAccept: (name: string) => void;
+  onAgain: () => void;
+}) {
+  const productName = result.product?.name?.trim();
+
+  return (
+    <div>
+      {result.product?.imageUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={result.product.imageUrl}
+          alt=""
+          className="mx-auto mb-3 h-28 rounded-xl object-contain"
+        />
+      )}
+
+      {result.ingredient?.name ? (
+        <>
+          <p className="text-sm text-muted">
+            Scanned <span className="font-mono text-xs">{result.code}</span>
+            {productName ? ` — ${productName}` : ''}
+            {result.product?.brand ? ` (${result.product.brand})` : ''}
+          </p>
+          <p className="mt-2 text-lg font-bold">{result.ingredient.name}</p>
+          {result.resolvedFrom && (
+            <p className="text-xs text-muted">matched on “{result.resolvedFrom}”</p>
+          )}
+          <button
+            type="button"
+            onClick={() => onAccept(result.ingredient!.name!)}
+            className="mt-3 w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
+          >
+            Add {result.ingredient.name} to pantry
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="text-sm">
+            {result.found && productName
+              ? `Found “${productName}”, but we couldn’t match it to an ingredient we know.`
+              : `Barcode ${result.code} isn’t in the product database.`}
+          </p>
+          {result.found && productName && (
+            <button
+              type="button"
+              onClick={() => onAccept(productName)}
+              className="mt-3 w-full rounded-xl border-2 border-brand px-4 py-2.5 text-sm font-semibold text-brand hover:bg-brand-soft"
+            >
+              Add it as “{productName}” anyway
+            </button>
+          )}
+          <p className="mt-3 text-xs text-muted">
+            You can also close this and type the ingredient straight into your kitchen list.
+          </p>
+        </>
+      )}
+
+      <button
+        type="button"
+        onClick={onAgain}
+        className="mt-2 w-full rounded-xl border border-border px-4 py-2 text-sm text-muted hover:border-brand hover:text-brand"
+      >
+        Scan another
+      </button>
     </div>
   );
 }
