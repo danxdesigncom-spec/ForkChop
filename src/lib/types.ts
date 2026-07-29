@@ -42,6 +42,22 @@ export interface Recipe {
   tags: string[];
   instructions: string[];
   ingredients: RecipeIngredient[];
+  /**
+   * Which catalogue this came from — 'local' for the bundled corpus, or a
+   * provider id such as 'spoonacular'. Optional so existing fixtures and the
+   * seeded corpus need no changes; absent means local.
+   */
+  sourceId?: string;
+  /** Photo, where the source has one. Local recipes use `emoji` instead. */
+  imageUrl?: string | null;
+  /** Link back to the original, for attribution on external recipes. */
+  sourceUrl?: string | null;
+  /**
+   * True when the source could not guarantee allergen data is complete.
+   * External sources map onto our allergen list imperfectly, so recipes
+   * carrying this are withheld whenever an unmappable allergy is selected.
+   */
+  allergensUnverified?: boolean;
 }
 
 /** How confident we are that a typed phrase means a given catalog ingredient. */

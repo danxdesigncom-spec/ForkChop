@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAllRecipes } from '@/lib/db/queries';
+import type { Recipe } from '@/lib/types';
 import { getLexicon } from '@/lib/matching/lexicon';
 import { resolvePantry } from '@/lib/matching/normalize';
 import { scoreRecipe } from '@/lib/matching/match';
@@ -11,6 +12,8 @@ const RequestSchema = z.object({
   slugs: z.array(z.string()).max(500),
   pantry: z.array(z.string()).max(200).optional(),
   assumeStaples: z.boolean().optional(),
+  /** Snapshots of externally-sourced saved recipes, rendered as-is. */
+  snapshots: z.array(z.record(z.string(), z.unknown())).max(500).optional(),
 });
 
 /**
@@ -50,15 +53,35 @@ export async function POST(request: Request) {
 
   const bySlug = new Map(getAllRecipes().map((r) => [r.slug, r]));
 
+  /**
+   * Saved external recipes are rendered from the snapshot stored at save time,
+   * never re-fetched. That keeps My Recipes working when the provider is down
+   * or the daily quota is spent, and stops a page view costing API points.
+   */
+  const snapshots = new Map<string, Recipe>();
+  for (const snapshot of parsed.data.snapshots ?? []) {
+    // Snapshots are user-supplied JSON, so check the fields the matcher relies
+    // on rather than trusting the shape.
+    if (
+      snapshot &&
+      typeof snapshot.slug === 'string' &&
+      typeof snapshot.title === 'string' &&
+      Array.isArray(snapshot.ingredients)
+    ) {
+      snapshots.set(snapshot.slug, snapshot as unknown as Recipe);
+    }
+  }
+
   const matches = slugs
     .flatMap((slug) => {
-      const recipe = bySlug.get(slug);
+      const recipe = bySlug.get(slug) ?? snapshots.get(slug);
       return recipe ? [scoreRecipe(recipe, pantryIds, { assumeStaples })] : [];
     })
     .sort((a, b) => b.coverage - a.coverage || a.recipe.title.localeCompare(b.recipe.title));
 
-  // Slugs that no longer exist, so the client can prune stale saves.
-  const missingSlugs = slugs.filter((slug) => !bySlug.has(slug));
+  // Slugs we can render from neither the corpus nor a snapshot, so the client
+  // can prune stale saves.
+  const missingSlugs = slugs.filter((slug) => !bySlug.has(slug) && !snapshots.has(slug));
 
   return NextResponse.json({ matches, missingSlugs });
 }
