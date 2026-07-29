@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getLexicon } from '@/lib/matching/lexicon';
 import { resolveIngredient } from '@/lib/matching/normalize';
 import type { ResolutionMethod } from '@/lib/types';
+import { getCached, setCached, takeToken } from '@/lib/barcode/off-throttle';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,19 @@ export const dynamic = 'force-dynamic';
  */
 
 const OFF_ENDPOINT = 'https://world.openfoodfacts.org/api/v2/product';
-const FIELDS = 'product_name,generic_name,brands,categories_tags,quantity';
+
+/**
+ * Open Food Facts requires a custom User-Agent identifying the app, in the
+ * form AppName/Version (contact). This is also the reason the lookup is
+ * proxied rather than called from the browser: User-Agent is a forbidden
+ * header, so client-side fetch physically cannot comply.
+ *
+ * The trade is that every user shares this server's IP against OFF's
+ * 15 requests/minute/IP limit — hence the cache and throttle below.
+ */
+const OFF_USER_AGENT = 'ForkChop/0.3 (https://fork-chop.vercel.app)';
+const FIELDS =
+  'product_name,product_name_en,generic_name,brands,categories_tags,quantity,image_front_small_url,image_url';
 
 /**
  * Resolution methods trustworthy enough to auto-fill a pantry from a package
@@ -39,10 +52,13 @@ interface OffResponse {
   status?: number;
   product?: {
     product_name?: string;
+    product_name_en?: string;
     generic_name?: string;
     brands?: string;
     quantity?: string;
     categories_tags?: string[];
+    image_front_small_url?: string;
+    image_url?: string;
   };
 }
 
@@ -63,15 +79,33 @@ export async function GET(request: Request) {
     );
   }
 
+  const cached = getCached(code);
+  if (cached) return NextResponse.json(cached);
+
+  // Protects the shared server IP against OFF's 15/min/IP limit.
+  const throttle = takeToken();
+  if (!throttle.allowed) {
+    return NextResponse.json(
+      {
+        error: 'Too many lookups just now. Try again in a moment.',
+        code,
+        retryAfterSeconds: throttle.retryAfterSeconds,
+      },
+      { status: 429, headers: { 'Retry-After': String(throttle.retryAfterSeconds) } },
+    );
+  }
+
   let data: OffResponse;
   try {
     const response = await fetch(`${OFF_ENDPOINT}/${code}.json?fields=${FIELDS}`, {
-      headers: { 'User-Agent': 'ForkChop/0.1 (recipe matching demo)' },
+      headers: { 'User-Agent': OFF_USER_AGENT },
       signal: AbortSignal.timeout(6000),
     });
 
     if (response.status === 404) {
-      return NextResponse.json({ code, found: false, ingredient: null, product: null });
+      const miss = { code, found: false, ingredient: null, product: null };
+      setCached(code, miss);
+      return NextResponse.json(miss);
     }
     if (!response.ok) {
       throw new Error(`Product lookup returned ${response.status}`);
@@ -89,7 +123,11 @@ export async function GET(request: Request) {
 
   const product = data.product;
   if (!product || data.status === 0) {
-    return NextResponse.json({ code, found: false, ingredient: null, product: null });
+    // Cached too: an unknown barcode stays unknown, and re-scanning the same
+    // packet should not spend the budget again.
+    const miss = { code, found: false, ingredient: null, product: null };
+    setCached(code, miss);
+    return NextResponse.json(miss);
   }
 
   const candidates = [
@@ -112,15 +150,21 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({
+  const payload = {
     code,
     found: true,
     product: {
-      name: product.product_name ?? product.generic_name ?? null,
+      // product_name_en first: the app is British-English, and OFF often
+      // carries a localised name in the shopper's own language.
+      name: product.product_name_en ?? product.product_name ?? product.generic_name ?? null,
       brand: product.brands ?? null,
       quantity: product.quantity ?? null,
+      imageUrl: product.image_front_small_url ?? product.image_url ?? null,
     },
     ingredient,
     resolvedFrom,
-  });
+  };
+
+  setCached(code, payload);
+  return NextResponse.json(payload);
 }

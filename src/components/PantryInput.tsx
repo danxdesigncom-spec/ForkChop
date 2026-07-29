@@ -8,7 +8,7 @@ import { BarcodeScanner } from './BarcodeScanner';
 
 interface Props {
   pantry: string[];
-  onAdd: (value: string) => void;
+  onAdd: (value: string, source?: 'typed' | 'scanned' | 'voice', barcode?: string) => void;
   onRemove: (value: string) => void;
   onClear: () => void;
   /** Raw entries the server could not resolve, shown as needing attention. */
@@ -186,10 +186,15 @@ export function PantryInput({ pantry, onAdd, onRemove, onClear, unrecognized, re
         >
           <span aria-hidden>📷</span> Scan
         </button>
-        <VoiceInput onAdd={onAdd} />
+        <VoiceInput onAdd={(value) => onAdd(value, 'voice')} />
       </div>
 
-      {scannerOpen && <BarcodeScanner onClose={() => setScannerOpen(false)} onAdd={onAdd} />}
+      {scannerOpen && (
+        <BarcodeScanner
+          onClose={() => setScannerOpen(false)}
+          onAdd={(value, barcode) => onAdd(value, 'scanned', barcode)}
+        />
+      )}
 
       {pantry.length > 0 && (
         <>

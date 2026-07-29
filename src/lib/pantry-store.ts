@@ -101,6 +101,16 @@ export function setSavedRecipes(slugs: string[]): void {
   updatePantryState((current) => ({ ...current, saved: slugs }));
 }
 
+/**
+ * Replace the pantry wholesale.
+ *
+ * Used when the account is the source of truth, so a removal made on another
+ * device actually sticks rather than being merged back in.
+ */
+export function setPantryItems(pantry: string[]): void {
+  updatePantryState((current) => ({ ...current, pantry }));
+}
+
 export function updatePantryState(update: (current: PantryState) => PantryState): void {
   const next = update(getSnapshot());
   cachedState = next;
