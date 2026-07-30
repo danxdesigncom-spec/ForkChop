@@ -5,6 +5,7 @@ import type { Recipe, RecipeIngredient, RecipeMatch } from '@/lib/types';
 import { formatAmount, formatMinutes } from '@/lib/format';
 import { STATUS_LABEL } from './RecipeCard';
 import { SpiceBadge } from './SpiceBadge';
+import { RecipeRating, type RatingValue } from './RecipeRating';
 
 interface Props {
   match: RecipeMatch;
@@ -14,6 +15,11 @@ interface Props {
   onToggleBasket: (ingredient: RecipeIngredient, recipeTitle: string) => void;
   onAddAllMissing: (match: RecipeMatch) => void;
   onToggleSaved: (slug: string, recipe?: Recipe) => void;
+  /** Null when the ratings feature is off; the widget is hidden entirely. */
+  rating: RatingValue | null;
+  canRate: boolean;
+  onRate: (slug: string, stars: number) => Promise<void>;
+  onSignInRequired: () => void;
 }
 
 export function RecipeDetail({
@@ -24,6 +30,10 @@ export function RecipeDetail({
   onToggleBasket,
   onAddAllMissing,
   onToggleSaved,
+  rating,
+  canRate,
+  onRate,
+  onSignInRequired,
 }: Props) {
   const { recipe } = match;
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -121,6 +131,17 @@ export function RecipeDetail({
 
           <div className="flex flex-wrap gap-1.5">
             <SpiceBadge recipe={recipe} size="md" />
+            {rating && (
+              <div className="mt-1 basis-full">
+                <RecipeRating
+                  slug={recipe.slug}
+                  value={rating}
+                  canVote={canRate}
+                  onChange={onRate}
+                  onSignInRequired={onSignInRequired}
+                />
+              </div>
+            )}
             {recipe.tags.map((tag) => (
               <span
                 key={tag}

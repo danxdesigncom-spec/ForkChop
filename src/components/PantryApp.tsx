@@ -15,6 +15,7 @@ import { BasketPanel, type BasketItem } from './BasketPanel';
 import { SiteHeader, type View } from './SiteHeader';
 import { InfiniteScrollSentinel } from './InfiniteScrollSentinel';
 import { SavedGroupToggle } from './SavedGroupToggle';
+import type { RatingValue } from './RecipeRating';
 import { setPantryItems, setSavedRecipes } from '@/lib/pantry-store';
 import {
   addSavedRecipe,
@@ -36,6 +37,7 @@ import type { ProviderSummary } from '@/lib/grocery/types';
 import type { FeatureFlags } from '@/lib/flags';
 import { PAGE_SIZE, paginateBySection } from '@/lib/pagination';
 import { groupSavedRecipes, type SavedGroupBy } from '@/lib/saved-grouping';
+import { fetchRatings, saveRating, type RatingsBySlug } from '@/lib/ratings-sync';
 
 interface RecommendationsResponse {
   pantry: ResolvedIngredient[];
@@ -110,6 +112,7 @@ export function PantryApp({
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [revealCount, setRevealCount] = useState(PAGE_SIZE);
   const [savedGroupBy, setSavedGroupBy] = useState<SavedGroupBy>('flat');
+  const [ratings, setRatings] = useState<RatingsBySlug>({});
 
   const [data, setData] = useState<RecommendationsResponse | null>(null);
   const [savedMatches, setSavedMatches] = useState<RecipeMatch[]>([]);
@@ -457,6 +460,45 @@ export function PantryApp({
     }
     return grouped;
   }, [data]);
+
+  /**
+   * Ratings load once per result-set change, keyed on the slugs currently on
+   * screen (Discover + My Recipes). A separate reducer would over-engineer
+   * this — the round-trip is small and only runs when the list mutates.
+   */
+  const ratingSlugs = useMemo(() => {
+    const slugs = new Set<string>();
+    for (const m of data?.matches ?? []) slugs.add(m.recipe.slug);
+    for (const m of savedMatches) slugs.add(m.recipe.slug);
+    return [...slugs];
+  }, [data, savedMatches]);
+
+  const ratingsKey = ratingSlugs.join(',');
+  useEffect(() => {
+    if (!flags.ratings || ratingSlugs.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const result = await fetchRatings(ratingSlugs);
+      if (!cancelled) setRatings((prev) => ({ ...prev, ...result }));
+    })();
+    return () => { cancelled = true; };
+  }, [flags.ratings, ratingsKey, ratingSlugs]);
+
+  const onRate = useCallback(
+    async (slug: string, stars: number) => {
+      if (!userEmail) { setSignInOpen(true); return; }
+      const optimistic: RatingValue = ratings[slug]
+        ? { avg: ratings[slug].avg, count: ratings[slug].count, mine: stars }
+        : { avg: stars, count: 1, mine: stars };
+      setRatings((prev) => ({ ...prev, [slug]: optimistic }));
+      const fresh = await saveRating(slug, stars);
+      if (fresh) setRatings((prev) => ({ ...prev, [slug]: fresh }));
+      // On failure, keep the optimistic value visible for this session; a
+      // reload will fetch the true state. The user-facing cost of pretending
+      // the save worked is smaller than a stars-flicker.
+    },
+    [ratings, userEmail],
+  );
 
   /**
    * Pagination: cap total revealed matches at revealCount, distributed across
@@ -880,6 +922,14 @@ export function PantryApp({
           onToggleBasket={toggleBasket}
           onAddAllMissing={addAllMissing}
           onToggleSaved={toggleSaved}
+          rating={
+            flags.ratings
+              ? (ratings[openMatch.recipe.slug] ?? { avg: 0, count: 0, mine: null })
+              : null
+          }
+          canRate={!!userEmail}
+          onRate={onRate}
+          onSignInRequired={() => setSignInOpen(true)}
         />
       )}
 
