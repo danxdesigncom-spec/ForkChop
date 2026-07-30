@@ -40,15 +40,45 @@ export function listGroceryProviders(): string[] {
   return [...providers.keys()];
 }
 
-export function describeGroceryProviders(): ProviderSummary[] {
-  return [...providers.keys()].map((id) => {
-    const provider = getGroceryProvider(id);
-    return {
-      id: provider.id,
-      name: provider.name,
-      configured: provider.configured,
-      deliveryNote: provider.deliveryNote,
-      setupHint: provider.setupHint,
-    };
-  });
+/**
+ * How the UI should present the checkout picker.
+ *
+ * `hiddenIds` filters providers out entirely — used for feature-flagged
+ * partners like Walmart, so turning the flag off makes them disappear from
+ * the picker and from the registry-facing API for the same request.
+ */
+export function describeGroceryProviders(
+  options: { hiddenIds?: string[] } = {},
+): ProviderSummary[] {
+  const hidden = new Set(options.hiddenIds ?? []);
+  return [...providers.keys()]
+    .filter((id) => !hidden.has(id))
+    .map((id) => {
+      const provider = getGroceryProvider(id);
+      return {
+        id: provider.id,
+        name: provider.name,
+        configured: provider.configured,
+        deliveryNote: provider.deliveryNote,
+        setupHint: provider.setupHint,
+      };
+    });
+}
+
+/**
+ * Ids the caller should refuse for `/api/cart`, given the current flags.
+ *
+ * `describeGroceryProviders` gates the UI; this gates the server so a client
+ * that bypasses the picker cannot still reach a flagged-off provider.
+ */
+export function disabledGroceryProviderIds(flags: {
+  walmart?: boolean;
+  kroger?: boolean;
+  instacart?: boolean;
+}): string[] {
+  const disabled: string[] = [];
+  if (flags.walmart === false) disabled.push('walmart');
+  if (flags.kroger === false) disabled.push('kroger');
+  if (flags.instacart === false) disabled.push('instacart');
+  return disabled;
 }
