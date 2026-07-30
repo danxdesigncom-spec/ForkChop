@@ -1,7 +1,9 @@
 import { getAllIngredients } from '../db/queries';
 import { createMockProvider } from './mock-provider';
 import { PARTNER_CONFIGS, createPartnerProvider } from './partner-providers';
+import { createInstacartProvider } from './instacart-provider';
 import type { GroceryProvider, ProviderSummary } from './types';
+import { getFlags } from '../flags';
 
 export * from './types';
 export { ProviderNotConfiguredError } from './partner-providers';
@@ -23,6 +25,16 @@ const providers = new Map<string, () => GroceryProvider>();
 providers.set('mock', () => createMockProvider({ categories: ingredientCategories() }));
 
 for (const config of PARTNER_CONFIGS) {
+  /**
+   * Instacart has a real provider when the feature flag is on. When it's off,
+   * we fall through to the stub in partner-providers.ts — that means the
+   * option shows up as "not connected" for anyone who has the key set but the
+   * flag off, rather than vanishing entirely.
+   */
+  if (config.id === 'instacart' && getFlags().instacart) {
+    providers.set(config.id, () => createInstacartProvider(ingredientCategories()));
+    continue;
+  }
   providers.set(config.id, () => createPartnerProvider(config, ingredientCategories()));
 }
 

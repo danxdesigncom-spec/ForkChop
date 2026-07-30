@@ -19,7 +19,10 @@ export default async function Home() {
   // providers (e.g. Walmart when NEXT_PUBLIC_FEATURE_WALMART=false) are
   // dropped here so the picker never shows them.
   const providers = describeGroceryProviders({
-    hiddenIds: flagsForProviders.walmart ? [] : ['walmart'],
+    hiddenIds: [
+      ...(flagsForProviders.walmart ? [] : ['walmart']),
+      ...(flagsForProviders.instacart ? [] : ['instacart']),
+    ],
   });
   // Resolved server-side so the header renders signed-in on first paint,
   // rather than flashing "Log in" and then swapping.
