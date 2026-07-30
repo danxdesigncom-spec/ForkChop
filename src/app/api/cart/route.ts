@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { ProviderNotConfiguredError, getGroceryProvider } from '@/lib/grocery';
+import { ProviderNotConfiguredError, disabledGroceryProviderIds, getGroceryProvider } from '@/lib/grocery';
 import { getAllIngredients } from '@/lib/db/queries';
+import { getFlags } from '@/lib/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,6 +60,18 @@ export async function POST(request: Request) {
     unit: item.unit ?? null,
     neededFor: item.neededFor ?? [],
   }));
+
+  // Refuse flagged-off providers even if the client asks for one directly.
+  // The UI already hides them, but a naive script hitting /api/cart could
+  // still address a disabled partner otherwise.
+  const requested = parsed.data.provider ?? process.env.FORKCHOP_GROCERY_PROVIDER ?? 'mock';
+  const disabled = new Set(disabledGroceryProviderIds(getFlags()));
+  if (disabled.has(requested)) {
+    return NextResponse.json(
+      { error: `The ${requested} checkout is disabled on this deployment.` },
+      { status: 404 },
+    );
+  }
 
   try {
     const provider = getGroceryProvider(parsed.data.provider);

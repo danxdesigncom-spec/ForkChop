@@ -22,6 +22,7 @@ const EXPORT_OPTION = 'list';
 const PROVIDER_EMOJI: Record<string, string> = {
   instacart: '🥕',
   walmart: '🔵',
+  kroger: '🛒',
   mock: '🐷',
 };
 
@@ -347,17 +348,44 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
                     </p>
                   </div>
 
-                  <a
-                    href={cart.checkoutUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 block w-full rounded-xl bg-brand px-4 py-3 text-center text-sm font-semibold text-white hover:bg-brand-strong"
-                  >
-                    Continue to {cart.providerName}
-                  </a>
+                  {/*
+                    When the provider hands over a `clipboardText` (Kroger,
+                    because their site can't accept a full list via URL), copy
+                    it to the clipboard just before the tab opens. Clipboard
+                    writes must run from a user gesture, so the anchor is
+                    swapped for a button — a plain anchor's default
+                    navigation would race the async copy.
+                   */}
+                  {cart.clipboardText ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(cart.clipboardText!);
+                        } catch {
+                          // If the browser refuses the copy (permission or
+                          // insecure context) the handoff should still happen.
+                        }
+                        window.open(cart.checkoutUrl, '_blank', 'noopener,noreferrer');
+                      }}
+                      className="mt-4 block w-full rounded-xl bg-brand px-4 py-3 text-center text-sm font-semibold text-white hover:bg-brand-strong"
+                    >
+                      Copy list & continue to {cart.providerName}
+                    </button>
+                  ) : (
+                    <a
+                      href={cart.checkoutUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-4 block w-full rounded-xl bg-brand px-4 py-3 text-center text-sm font-semibold text-white hover:bg-brand-strong"
+                    >
+                      Continue to {cart.providerName}
+                    </a>
+                  )}
                   <p className="mt-2 text-center text-xs text-muted">
-                    You complete payment on the store&apos;s own site. ForkChop never takes payment
-                    details. This build uses a demo store, so the link is a placeholder.
+                    {cart.clipboardText
+                      ? `Your list is on the clipboard — paste it into ${cart.providerName}'s search or cart. ForkChop never takes payment details.`
+                      : 'You complete payment on the store’s own site. ForkChop never takes payment details.'}
                   </p>
                 </>
               )}

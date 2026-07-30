@@ -13,13 +13,24 @@ export default async function Home() {
   const ingredients = getAllIngredients();
   // Counts behind each filter option, so the UI can hide dead ends.
   const facets = getFacets();
-  // Which storefronts exist and which are actually connected.
-  const providers = describeGroceryProviders();
+  // Read once per request and passed through so client and server agree.
+  const flagsForProviders = getFlags();
+  // Which storefronts exist and which are actually connected. Flagged-off
+  // providers (e.g. Walmart when NEXT_PUBLIC_FEATURE_WALMART=false) are
+  // dropped here so the picker never shows them.
+  const providers = describeGroceryProviders({
+    hiddenIds: [
+      ...(flagsForProviders.walmart ? [] : ['walmart']),
+      ...(flagsForProviders.instacart ? [] : ['instacart']),
+      // Kroger is only registered when its flag is on, so nothing to hide;
+      // listed here for symmetry so a reviewer sees every flag in one place.
+      ...(flagsForProviders.kroger ? [] : ['kroger']),
+    ],
+  });
   // Resolved server-side so the header renders signed-in on first paint,
   // rather than flashing "Log in" and then swapping.
   const user = await getUser();
-  // Read once per request and passed through so client and server agree.
-  const flags = getFlags();
+  const flags = flagsForProviders;
 
   return (
     <>
