@@ -14,6 +14,7 @@ import { RecipeDetail } from './RecipeDetail';
 import { BasketPanel, type BasketItem } from './BasketPanel';
 import { SiteHeader, type View } from './SiteHeader';
 import { InfiniteScrollSentinel } from './InfiniteScrollSentinel';
+import { SavedGroupToggle } from './SavedGroupToggle';
 import { setPantryItems, setSavedRecipes } from '@/lib/pantry-store';
 import {
   addSavedRecipe,
@@ -34,6 +35,7 @@ import type { Facets } from '@/lib/db/queries';
 import type { ProviderSummary } from '@/lib/grocery/types';
 import type { FeatureFlags } from '@/lib/flags';
 import { PAGE_SIZE, paginateBySection } from '@/lib/pagination';
+import { groupSavedRecipes, type SavedGroupBy } from '@/lib/saved-grouping';
 
 interface RecommendationsResponse {
   pantry: ResolvedIngredient[];
@@ -107,6 +109,7 @@ export function PantryApp({
   const [signInOpen, setSignInOpen] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [revealCount, setRevealCount] = useState(PAGE_SIZE);
+  const [savedGroupBy, setSavedGroupBy] = useState<SavedGroupBy>('flat');
 
   const [data, setData] = useState<RecommendationsResponse | null>(null);
   const [savedMatches, setSavedMatches] = useState<RecipeMatch[]>([]);
@@ -466,6 +469,11 @@ export function PantryApp({
     [sections, revealCount],
   );
   const paginated = flags.pagination;
+
+  const savedGroups = useMemo(
+    () => (flags.savedGrouping ? groupSavedRecipes(savedMatches, savedGroupBy) : []),
+    [flags.savedGrouping, savedMatches, savedGroupBy],
+  );
   const visibleSections = paginated ? pagination.visible : sections;
   const hasMore = paginated && pagination.totalShown < pagination.totalAvailable;
 
@@ -684,19 +692,56 @@ export function PantryApp({
                 </button>
               </div>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {savedMatches.map((match) => (
-                  <RecipeCard
-                    key={match.recipe.id}
-                    match={match}
-                    basket={basketIds}
-                    saved={savedSet.has(match.recipe.slug)}
-                    onOpen={setOpenMatch}
-                    onToggleBasket={toggleBasket}
-                    onToggleSaved={toggleSaved}
-                  />
-                ))}
-              </div>
+              <>
+                {flags.savedGrouping && (
+                  <div className="mb-4">
+                    <SavedGroupToggle value={savedGroupBy} onChange={setSavedGroupBy} />
+                  </div>
+                )}
+
+                {flags.savedGrouping && savedGroupBy !== 'flat' ? (
+                  <div className="space-y-8">
+                    {savedGroups.map((group) => (
+                      <section key={group.id}>
+                        <h3 className="mb-3 flex items-center gap-2 text-lg font-bold">
+                          {group.emoji && <span aria-hidden>{group.emoji}</span>}
+                          {group.label}
+                          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-xs font-bold text-brand-strong tabular-nums">
+                            {group.matches.length}
+                          </span>
+                        </h3>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {group.matches.map((match) => (
+                            <RecipeCard
+                              key={`${group.id}-${match.recipe.id}`}
+                              match={match}
+                              basket={basketIds}
+                              saved={savedSet.has(match.recipe.slug)}
+                              onOpen={setOpenMatch}
+                              onToggleBasket={toggleBasket}
+                              onToggleSaved={toggleSaved}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {savedMatches.map((match) => (
+                      <RecipeCard
+                        key={match.recipe.id}
+                        match={match}
+                        basket={basketIds}
+                        saved={savedSet.has(match.recipe.slug)}
+                        onOpen={setOpenMatch}
+                        onToggleBasket={toggleBasket}
+                        onToggleSaved={toggleSaved}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </section>
         )}
