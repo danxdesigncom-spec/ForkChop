@@ -154,30 +154,6 @@ body::before {
   border-radius: 4px;
 }
 
-/*
- * Printing sends only the shopping list. Hiding everything else means the user
- * gets a clean sheet of paper rather than the whole app, and the same box is
- * what they would screenshot.
- */
-@media print {
-  body * {
-    visibility: hidden;
-  }
-  #forkchop-shopping-list,
-  #forkchop-shopping-list * {
-    visibility: visible;
-  }
-  #forkchop-shopping-list {
-    position: absolute;
-    inset: 0 auto auto 0;
-    width: 100%;
-    border: none;
-    padding: 0;
-    color: #000;
-    background: #fff;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -35,7 +35,7 @@ export default async function Home() {
         flags={flags}
       />
 
-      <footer className="border-t border-border px-4 py-6 text-center text-xs text-muted print:hidden">
+      <footer className="border-t border-border px-4 py-6 text-center text-xs text-muted">
         <p>ForkChop builds your basket and hands off to the store — it never takes payment details.</p>
         {(flags.aboutPage || flags.privacyPage || flags.staplesPage) && (
           <p className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
