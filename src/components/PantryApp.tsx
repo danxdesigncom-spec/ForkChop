@@ -474,7 +474,7 @@ export function PantryApp({
        * taller than most viewports, and the bottom has to stay reachable.
        */}
       <aside
-        className="lg:sticky lg:top-28 lg:max-h-[calc(100vh-9rem)] lg:overflow-y-auto lg:overscroll-contain print:hidden"
+        className="lg:sticky lg:top-28 lg:max-h-[calc(100vh-9rem)] lg:overflow-y-auto lg:overscroll-contain"
       >
         <div className="rounded-2xl border border-border bg-surface p-5">
           <PantryInput

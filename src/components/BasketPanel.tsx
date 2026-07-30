@@ -109,7 +109,7 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
 
   return (
     <>
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur print:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">

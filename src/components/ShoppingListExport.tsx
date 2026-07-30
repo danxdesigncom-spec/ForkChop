@@ -11,8 +11,8 @@ import {
 import { departmentIcon } from '@/lib/grocery/departments';
 
 /**
- * The no-storefront option: a clean shopping list you can print, screenshot,
- * copy, or download as a text file.
+ * The no-storefront option: a clean shopping list you can copy to the
+ * clipboard, or download as a text file.
  *
  * Works entirely offline and needs no provider, which is why it is always
  * available even when Instacart and Walmart+ are not connected.
@@ -89,14 +89,7 @@ export function ShoppingListExport({ items }: { items: ShoppingListItem[] }) {
         ))}
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2 print:hidden">
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="rounded-xl border-2 border-border px-3 py-2 text-sm font-semibold hover:border-brand hover:text-brand"
-        >
-          <span aria-hidden>🖨️</span> Print
-        </button>
+      <div className="mt-3 grid grid-cols-2 gap-2">
         <button
           type="button"
           onClick={copy}
@@ -113,9 +106,9 @@ export function ShoppingListExport({ items }: { items: ShoppingListItem[] }) {
         </button>
       </div>
 
-      <p className="mt-2 text-xs text-muted print:hidden">
-        Print sends just the list, not the rest of the page — so a screenshot of the box above works
-        just as well.
+      <p className="mt-2 text-xs text-muted">
+        Copy pastes into anything — Notes, a message, or a screenshot. Or download the list as a
+        text file.
       </p>
     </div>
   );
