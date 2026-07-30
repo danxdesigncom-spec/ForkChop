@@ -31,6 +31,7 @@ import { ChipFilter, type ChipOption } from './ChipFilter';
 import { DIETS, MEAL_TYPES, REGIONS } from '@/lib/taxonomy';
 import type { Facets } from '@/lib/db/queries';
 import type { ProviderSummary } from '@/lib/grocery/types';
+import type { FeatureFlags } from '@/lib/flags';
 
 interface RecommendationsResponse {
   pantry: ResolvedIngredient[];
@@ -78,6 +79,7 @@ export function PantryApp({
   userEmail,
   authConfigured,
   authSetupHint,
+  flags,
 }: {
   allTags: string[];
   ingredients: Ingredient[];
@@ -86,8 +88,11 @@ export function PantryApp({
   userEmail: string | null;
   authConfigured: boolean;
   authSetupHint: string;
+  flags: FeatureFlags;
 }) {
   // Persisted across reloads; see src/lib/pantry-store.ts.
+  void flags; // consumed in later feature PRs
+
   const { pantry, assumeStaples, allergens, avoidSpicy, dislikes, saved } = useSyncExternalStore(
     subscribe,
     getSnapshot,

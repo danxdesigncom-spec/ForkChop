@@ -2,6 +2,7 @@ import { getAllIngredients, getAllTags, getFacets } from '@/lib/db/queries';
 import { describeGroceryProviders } from '@/lib/grocery';
 import { getUser } from '@/lib/supabase/server';
 import { SUPABASE_SETUP_HINT, isSupabaseConfigured } from '@/lib/supabase/config';
+import { getFlags } from '@/lib/flags';
 import { PantryApp } from '@/components/PantryApp';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,8 @@ export default async function Home() {
   // Resolved server-side so the header renders signed-in on first paint,
   // rather than flashing "Log in" and then swapping.
   const user = await getUser();
+  // Read once per request and passed through so client and server agree.
+  const flags = getFlags();
 
   return (
     <>
@@ -29,6 +32,7 @@ export default async function Home() {
         userEmail={user?.email ?? null}
         authConfigured={isSupabaseConfigured()}
         authSetupHint={SUPABASE_SETUP_HINT}
+        flags={flags}
       />
 
       <footer className="border-t border-border px-4 py-6 text-center text-xs text-muted print:hidden">
