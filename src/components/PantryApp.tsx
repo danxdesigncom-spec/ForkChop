@@ -13,6 +13,7 @@ import { RecipeCard, STATUS_LABEL } from './RecipeCard';
 import { RecipeDetail } from './RecipeDetail';
 import { BasketPanel, type BasketItem } from './BasketPanel';
 import { SiteHeader, type View } from './SiteHeader';
+import { InfiniteScrollSentinel } from './InfiniteScrollSentinel';
 import { setPantryItems, setSavedRecipes } from '@/lib/pantry-store';
 import {
   addSavedRecipe,
@@ -32,6 +33,7 @@ import { DIETS, MEAL_TYPES, REGIONS } from '@/lib/taxonomy';
 import type { Facets } from '@/lib/db/queries';
 import type { ProviderSummary } from '@/lib/grocery/types';
 import type { FeatureFlags } from '@/lib/flags';
+import { PAGE_SIZE, paginateBySection } from '@/lib/pagination';
 
 interface RecommendationsResponse {
   pantry: ResolvedIngredient[];
@@ -91,8 +93,6 @@ export function PantryApp({
   flags: FeatureFlags;
 }) {
   // Persisted across reloads; see src/lib/pantry-store.ts.
-  void flags; // consumed in later feature PRs
-
   const { pantry, assumeStaples, allergens, avoidSpicy, dislikes, saved } = useSyncExternalStore(
     subscribe,
     getSnapshot,
@@ -106,6 +106,7 @@ export function PantryApp({
   const [view, setView] = useState<View>('discover');
   const [signInOpen, setSignInOpen] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [revealCount, setRevealCount] = useState(PAGE_SIZE);
 
   const [data, setData] = useState<RecommendationsResponse | null>(null);
   const [savedMatches, setSavedMatches] = useState<RecipeMatch[]>([]);
@@ -454,6 +455,33 @@ export function PantryApp({
     return grouped;
   }, [data]);
 
+  /**
+   * Pagination: cap total revealed matches at revealCount, distributed across
+   * sections in Ready → Almost → Stretch order so the best matches always
+   * appear first. Gated by flags.pagination — off keeps the show-all
+   * behaviour intact.
+   */
+  const pagination = useMemo(
+    () => paginateBySection(sections, SECTION_ORDER, revealCount),
+    [sections, revealCount],
+  );
+  const paginated = flags.pagination;
+  const visibleSections = paginated ? pagination.visible : sections;
+  const hasMore = paginated && pagination.totalShown < pagination.totalAvailable;
+
+  /**
+   * A new result set (filters changed, pantry changed) should reveal from the
+   * top, not continue paging through the previous list at whatever depth we
+   * scrolled to. Uses the officially blessed "reset on prop change" pattern —
+   * a setState *in render* rather than in an effect, so React handles it
+   * without a paint in between.
+   */
+  const [dataForReset, setDataForReset] = useState(data);
+  if (dataForReset !== data) {
+    setDataForReset(data);
+    setRevealCount(PAGE_SIZE);
+  }
+
   return (
     <>
     <SiteHeader
@@ -741,7 +769,8 @@ export function PantryApp({
 
             <div className="space-y-10">
               {SECTION_ORDER.map((status) => {
-                const matches = sections.get(status);
+                const matches = visibleSections.get(status);
+                const totalInStatus = sections.get(status)?.length ?? 0;
                 if (!matches || matches.length === 0) return null;
 
                 return (
@@ -761,7 +790,7 @@ export function PantryApp({
                             color: SECTION_COLOR[status],
                           }}
                         >
-                          {matches.length}
+                          {paginated ? `${matches.length}/${totalInStatus}` : matches.length}
                         </span>
                       </h3>
                       <p className="text-sm text-muted">{SECTION_BLURB[status]}</p>
@@ -784,6 +813,15 @@ export function PantryApp({
                 );
               })}
             </div>
+
+            {paginated && (
+              <InfiniteScrollSentinel
+                onReveal={() => setRevealCount((c) => c + PAGE_SIZE)}
+                hasMore={hasMore}
+                totalShown={pagination.totalShown}
+                totalAvailable={pagination.totalAvailable}
+              />
+            )}
           </>
         )}
       </main>
