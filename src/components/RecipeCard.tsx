@@ -90,16 +90,31 @@ export function RecipeCard({
             </p>
           </div>
 
-          <div className="flex flex-col items-center gap-1.5">
+          <div className="flex flex-col items-center gap-3">
             <MatchRing value={match.coverage} />
-            {/* Above the stretched link, so saving never opens the recipe. */}
+            {/*
+              Above the stretched link, so saving never opens the recipe.
+
+              WCAG recommends 24×24 CSS pixels minimum for tap targets, and
+              Apple/Google's own guidance is 44×44. The old button was ~18×18
+              — accidental long-presses of the emoji were common on phones,
+              and desktop users had to aim carefully.
+              size-11 = 2.75rem = 44px, matching the Apple HIG minimum. The
+              icon itself is text-2xl so it looks like the emoji you're used
+              to; the hit area is what's grown.
+              gap-3 rather than gap-1.5 puts real breathing room between the
+              coverage ring and the heart, so a fat-finger on the heart
+              never triggers the ring.
+            */}
             <button
               type="button"
               onClick={() => onToggleSaved(recipe.slug, recipe)}
               aria-pressed={saved}
               aria-label={saved ? `Remove ${recipe.title} from My Recipes` : `Save ${recipe.title} to My Recipes`}
               title={saved ? 'Saved to My Recipes' : 'Save to My Recipes'}
-              className="relative z-10 text-lg leading-none transition-transform hover:scale-110"
+              className={`relative z-10 flex size-11 items-center justify-center rounded-full text-2xl leading-none transition-transform
+                ${saved ? 'bg-brand-soft' : 'bg-transparent hover:bg-brand-soft/60'}
+                hover:scale-110 focus-visible:bg-brand-soft`}
             >
               <span aria-hidden>{saved ? '❤️' : '🤍'}</span>
             </button>
