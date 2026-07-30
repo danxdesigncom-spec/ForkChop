@@ -36,7 +36,14 @@ export default async function Home() {
       />
 
       <footer className="border-t border-border px-4 py-6 text-center text-xs text-muted print:hidden">
-        ForkChop builds your basket and hands off to the store — it never takes payment details.
+        <p>ForkChop builds your basket and hands off to the store — it never takes payment details.</p>
+        {flags.privacyPage && (
+          <p className="mt-2">
+            <a href="/privacy" className="text-brand hover:underline">
+              Privacy policy
+            </a>
+          </p>
+        )}
       </footer>
     </>
   );
