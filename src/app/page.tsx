@@ -37,11 +37,18 @@ export default async function Home() {
 
       <footer className="border-t border-border px-4 py-6 text-center text-xs text-muted print:hidden">
         <p>ForkChop builds your basket and hands off to the store — it never takes payment details.</p>
-        {flags.privacyPage && (
-          <p className="mt-2">
-            <a href="/privacy" className="text-brand hover:underline">
-              Privacy policy
-            </a>
+        {(flags.aboutPage || flags.privacyPage) && (
+          <p className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
+            {flags.aboutPage && (
+              <a href="/about" className="text-brand hover:underline">
+                About
+              </a>
+            )}
+            {flags.privacyPage && (
+              <a href="/privacy" className="text-brand hover:underline">
+                Privacy policy
+              </a>
+            )}
           </p>
         )}
       </footer>
