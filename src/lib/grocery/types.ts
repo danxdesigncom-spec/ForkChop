@@ -68,6 +68,13 @@ export interface GroceryCart {
   /** Where the user completes the purchase. ForkChop never takes payment. */
   checkoutUrl: string;
   estimatedDelivery: string;
+  /**
+   * Optional. If set, the client copies this string to the clipboard just
+   * before opening the checkout URL. Used by providers whose site can't
+   * accept a full basket via URL (e.g. Kroger), so the user can paste the
+   * list into their search box.
+   */
+  clipboardText?: string;
 }
 
 /** What the checkout picker needs to know about a provider. Never any secrets. */

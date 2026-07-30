@@ -2,6 +2,7 @@ import { getAllIngredients } from '../db/queries';
 import { createMockProvider } from './mock-provider';
 import { PARTNER_CONFIGS, createPartnerProvider } from './partner-providers';
 import { createInstacartProvider } from './instacart-provider';
+import { createKrogerProvider } from './kroger-provider';
 import type { GroceryProvider, ProviderSummary } from './types';
 import { getFlags } from '../flags';
 
@@ -23,6 +24,12 @@ function ingredientCategories(): Map<string, string> {
 const providers = new Map<string, () => GroceryProvider>();
 
 providers.set('mock', () => createMockProvider({ categories: ingredientCategories() }));
+
+// Kroger has no API key path; it's either on (real deep link) or hidden by
+// the flag entirely.
+if (getFlags().kroger) {
+  providers.set('kroger', () => createKrogerProvider(ingredientCategories()));
+}
 
 for (const config of PARTNER_CONFIGS) {
   /**

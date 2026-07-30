@@ -22,6 +22,9 @@ export default async function Home() {
     hiddenIds: [
       ...(flagsForProviders.walmart ? [] : ['walmart']),
       ...(flagsForProviders.instacart ? [] : ['instacart']),
+      // Kroger is only registered when its flag is on, so nothing to hide;
+      // listed here for symmetry so a reviewer sees every flag in one place.
+      ...(flagsForProviders.kroger ? [] : ['kroger']),
     ],
   });
   // Resolved server-side so the header renders signed-in on first paint,
