@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { describeAuthError } from '@/lib/auth-errors';
+import { resolveSiteOrigin } from '@/lib/site-url';
 
 /**
  * Sign-in and sign-out.
@@ -27,20 +28,12 @@ const EmailSchema = z
   .max(254);
 
 /**
- * Resolves the origin to send people back to.
- *
- * Must come from the request rather than a hard-coded constant, because the
- * same build serves localhost, the production domain, and a different
- * auto-generated hostname for every Vercel preview deploy.
+ * See src/lib/site-url.ts for the full rationale — the short version is:
+ * pinning to NEXT_PUBLIC_SITE_URL in Production stops magic links from
+ * landing on preview URLs that Vercel Deployment Protection guards.
  */
 async function resolveOrigin(): Promise<string> {
-  const headerList = await headers();
-  const origin = headerList.get('origin');
-  if (origin) return origin;
-
-  const host = headerList.get('x-forwarded-host') ?? headerList.get('host');
-  const protocol = headerList.get('x-forwarded-proto') ?? (host?.startsWith('localhost') ? 'http' : 'https');
-  return host ? `${protocol}://${host}` : '';
+  return resolveSiteOrigin(await headers());
 }
 
 /** Emails a magic link. Passwordless — no password is ever set or stored. */
