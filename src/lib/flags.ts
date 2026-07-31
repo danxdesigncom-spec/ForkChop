@@ -11,10 +11,12 @@
  * the same values as the initial server render (no hydration mismatch).
  *
  * Adding a flag
- *   1. Add a field to `FeatureFlags` with a clear default (safest is `false`).
- *   2. Add its env var name to the DEFAULTS map below.
- *   3. Document the variable in `.env.example` and the deploy notes.
- *   4. Gate the feature: `if (!flags.myFeature) return null;`
+ *   1. Add a field to `FeatureFlags`.
+ *   2. Add the default to the DEFAULTS map below — start at `false` while
+ *      the feature soaks, flip to `true` once it's the intended experience.
+ *   3. Add its env var name to the ENV_VARS map.
+ *   4. Document the variable in `.env.example` and the deploy notes.
+ *   5. Gate the feature: `if (!flags.myFeature) return null;`
  *
  * The names are `NEXT_PUBLIC_FEATURE_*` so it's obvious in the Vercel
  * dashboard what these are for. They ship to the browser bundle, which is
@@ -46,23 +48,22 @@ export interface FeatureFlags {
 }
 
 /**
- * Defaults. `false` means the feature is off unless the env var explicitly
- * enables it. `true` is reserved for features that already exist in prod and
- * would break user expectations if silently disabled.
+ * Defaults. Every feature has soaked long enough on its own PR/branch to be
+ * trusted as the intended experience, so all default `true`. The env vars
+ * still exist as an override — flipping one to `false` in Vercel takes a
+ * feature back out without a code revert if it starts misbehaving.
  */
 const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
-  // Existing behaviour, gated so it can be turned off if the integration breaks.
   walmart: true,
-  // New — off until explicitly enabled per environment.
-  kroger: false,
-  instacart: false,
-  ratings: false,
-  aboutPage: false,
-  privacyPage: false,
-  staplesPage: false,
-  savedGrouping: false,
-  pagination: false,
-  simplifiedSidebar: false,
+  kroger: true,
+  instacart: true,
+  ratings: true,
+  aboutPage: true,
+  privacyPage: true,
+  staplesPage: true,
+  savedGrouping: true,
+  pagination: true,
+  simplifiedSidebar: true,
 };
 
 /**
