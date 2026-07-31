@@ -564,80 +564,132 @@ export function PantryApp({
             resolved={data?.pantry ?? []}
           />
 
-          <div className="mt-4 border-t border-border">
-            <FilterSection title="Diet" emoji="🥗" badge={selectedDiets.length}>
-              <ChipFilter
-                options={dietOptions}
-                selected={selectedDiets}
-                onToggle={(id) => toggle(setSelectedDiets, id)}
-                onClear={() => setSelectedDiets([])}
-                hint="These stack — pick two and a recipe must satisfy both."
-              />
-            </FilterSection>
+          {(() => {
+            /*
+             * Each section is defined once and then arranged either flat (legacy)
+             * or grouped (simplified). The simplified layout keeps the most-used
+             * filters — ingredients, allergies, dislikes — visible and tucks the
+             * rarely-changed ones behind a single "Additional filters" accordion.
+             * Gated behind flags.simplifiedSidebar so it can be flipped off in
+             * prod without a code revert if it doesn't test well.
+             */
+            const dietSection = (
+              <FilterSection title="Diet" emoji="🥗" badge={selectedDiets.length}>
+                <ChipFilter
+                  options={dietOptions}
+                  selected={selectedDiets}
+                  onToggle={(id) => toggle(setSelectedDiets, id)}
+                  onClear={() => setSelectedDiets([])}
+                  hint="These stack — pick two and a recipe must satisfy both."
+                />
+              </FilterSection>
+            );
+            const regionSection = (
+              <FilterSection title="Region" emoji="🌍" badge={selectedRegions.length}>
+                <ChipFilter
+                  options={regionOptions}
+                  selected={selectedRegions}
+                  onToggle={(id) => toggle(setSelectedRegions, id)}
+                  onClear={() => setSelectedRegions([])}
+                  hint="Pick several to widen the search."
+                />
+              </FilterSection>
+            );
+            const mealSection = (
+              <FilterSection title="Meal" emoji="🍽️" badge={selectedMeals.length}>
+                <ChipFilter
+                  options={mealOptions}
+                  selected={selectedMeals}
+                  onToggle={(id) => toggle(setSelectedMeals, id)}
+                  onClear={() => setSelectedMeals([])}
+                />
+              </FilterSection>
+            );
+            const allergiesSection = (
+              <FilterSection title="Allergies" emoji="⚠️" badge={allergens.length}>
+                <AllergyFilter
+                  selected={allergens}
+                  onToggle={toggleAllergen}
+                  onClear={() => updatePantryState((current) => ({ ...current, allergens: [] }))}
+                />
+              </FilterSection>
+            );
+            const dislikesSection = (
+              <FilterSection
+                title="Dislikes"
+                emoji="🚫"
+                badge={dislikes.length + (avoidSpicy ? 1 : 0)}
+              >
+                <DislikesInput
+                  dislikes={dislikes}
+                  catalog={catalog}
+                  onAdd={addDislike}
+                  onRemove={removeDislike}
+                  avoidSpicy={avoidSpicy}
+                  onAvoidSpicyChange={(value) =>
+                    updatePantryState((current) => ({ ...current, avoidSpicy: value }))
+                  }
+                />
+              </FilterSection>
+            );
+            const timeStyleSection = (
+              <FilterSection
+                title="Time &amp; style"
+                emoji="⏱️"
+                badge={selectedTags.length + (maxTotalMinutes ? 1 : 0)}
+                defaultOpen={false}
+              >
+                <FilterBar
+                  allTags={allTags}
+                  selectedTags={selectedTags}
+                  onToggleTag={(tag) => toggle(setSelectedTags, tag)}
+                  assumeStaples={assumeStaples}
+                  onAssumeStaplesChange={(value) =>
+                    updatePantryState((current) => ({ ...current, assumeStaples: value }))
+                  }
+                  maxTotalMinutes={maxTotalMinutes}
+                  onMaxTotalMinutesChange={setMaxTotalMinutes}
+                />
+              </FilterSection>
+            );
 
-            <FilterSection title="Region" emoji="🌍" badge={selectedRegions.length}>
-              <ChipFilter
-                options={regionOptions}
-                selected={selectedRegions}
-                onToggle={(id) => toggle(setSelectedRegions, id)}
-                onClear={() => setSelectedRegions([])}
-                hint="Pick several to widen the search."
-              />
-            </FilterSection>
+            if (flags.simplifiedSidebar) {
+              const additionalCount =
+                selectedDiets.length +
+                selectedRegions.length +
+                selectedMeals.length +
+                selectedTags.length +
+                (maxTotalMinutes ? 1 : 0);
+              return (
+                <div className="mt-4 border-t border-border">
+                  {allergiesSection}
+                  {dislikesSection}
+                  <FilterSection
+                    title="Additional filters"
+                    emoji="⚙️"
+                    badge={additionalCount}
+                    defaultOpen={false}
+                  >
+                    {dietSection}
+                    {regionSection}
+                    {mealSection}
+                    {timeStyleSection}
+                  </FilterSection>
+                </div>
+              );
+            }
 
-            <FilterSection title="Meal" emoji="🍽️" badge={selectedMeals.length}>
-              <ChipFilter
-                options={mealOptions}
-                selected={selectedMeals}
-                onToggle={(id) => toggle(setSelectedMeals, id)}
-                onClear={() => setSelectedMeals([])}
-              />
-            </FilterSection>
-
-            <FilterSection title="Allergies" emoji="⚠️" badge={allergens.length}>
-              <AllergyFilter
-                selected={allergens}
-                onToggle={toggleAllergen}
-                onClear={() => updatePantryState((current) => ({ ...current, allergens: [] }))}
-              />
-            </FilterSection>
-
-            <FilterSection
-              title="Dislikes"
-              emoji="🚫"
-              badge={dislikes.length + (avoidSpicy ? 1 : 0)}
-            >
-              <DislikesInput
-                dislikes={dislikes}
-                catalog={catalog}
-                onAdd={addDislike}
-                onRemove={removeDislike}
-                avoidSpicy={avoidSpicy}
-                onAvoidSpicyChange={(value) =>
-                  updatePantryState((current) => ({ ...current, avoidSpicy: value }))
-                }
-              />
-            </FilterSection>
-
-            <FilterSection
-              title="Time &amp; style"
-              emoji="⏱️"
-              badge={selectedTags.length + (maxTotalMinutes ? 1 : 0)}
-              defaultOpen={false}
-            >
-              <FilterBar
-                allTags={allTags}
-                selectedTags={selectedTags}
-                onToggleTag={(tag) => toggle(setSelectedTags, tag)}
-                assumeStaples={assumeStaples}
-                onAssumeStaplesChange={(value) =>
-                  updatePantryState((current) => ({ ...current, assumeStaples: value }))
-                }
-                maxTotalMinutes={maxTotalMinutes}
-                onMaxTotalMinutesChange={setMaxTotalMinutes}
-              />
-            </FilterSection>
-          </div>
+            return (
+              <div className="mt-4 border-t border-border">
+                {dietSection}
+                {regionSection}
+                {mealSection}
+                {allergiesSection}
+                {dislikesSection}
+                {timeStyleSection}
+              </div>
+            );
+          })()}
         </div>
       </aside>
 

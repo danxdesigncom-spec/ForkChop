@@ -41,6 +41,8 @@ export interface FeatureFlags {
   savedGrouping: boolean;
   /** Paginate results with infinite scroll. */
   pagination: boolean;
+  /** Simplified sidebar: allergies + dislikes visible, other filters tucked into an "Additional filters" accordion. */
+  simplifiedSidebar: boolean;
 }
 
 /**
@@ -60,6 +62,7 @@ const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
   staplesPage: false,
   savedGrouping: false,
   pagination: false,
+  simplifiedSidebar: false,
 };
 
 /**
@@ -76,6 +79,7 @@ const ENV_VARS: Record<keyof FeatureFlags, string> = {
   staplesPage: 'NEXT_PUBLIC_FEATURE_STAPLES_PAGE',
   savedGrouping: 'NEXT_PUBLIC_FEATURE_SAVED_GROUPING',
   pagination: 'NEXT_PUBLIC_FEATURE_PAGINATION',
+  simplifiedSidebar: 'NEXT_PUBLIC_FEATURE_SIMPLIFIED_SIDEBAR',
 };
 
 /**
