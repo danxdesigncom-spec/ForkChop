@@ -41,6 +41,8 @@ export interface FeatureFlags {
   savedGrouping: boolean;
   /** Paginate results with infinite scroll. */
   pagination: boolean;
+  /** Admin backend at /admin — user + recipe management. */
+  admin: boolean;
 }
 
 /**
@@ -60,6 +62,7 @@ const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
   staplesPage: false,
   savedGrouping: false,
   pagination: false,
+  admin: false,
 };
 
 /**
@@ -76,6 +79,7 @@ const ENV_VARS: Record<keyof FeatureFlags, string> = {
   staplesPage: 'NEXT_PUBLIC_FEATURE_STAPLES_PAGE',
   savedGrouping: 'NEXT_PUBLIC_FEATURE_SAVED_GROUPING',
   pagination: 'NEXT_PUBLIC_FEATURE_PAGINATION',
+  admin: 'NEXT_PUBLIC_FEATURE_ADMIN',
 };
 
 /**
