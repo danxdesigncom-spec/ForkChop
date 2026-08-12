@@ -29,8 +29,6 @@ export interface FeatureFlags {
   kroger: boolean;
   /** Instacart real deep-link checkout (replaces the not-connected stub). */
   instacart: boolean;
-  /** Walmart+ checkout — kept for backward compatibility while it's still on. */
-  walmart: boolean;
   /** Recipe ratings, aggregated across all users. */
   ratings: boolean;
   /** About page, in the site footer. */
@@ -58,7 +56,6 @@ export interface FeatureFlags {
  * neither set, no email is on the allowlist and no one can get in.
  */
 const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
-  walmart: true,
   kroger: true,
   instacart: true,
   ratings: true,
@@ -77,7 +74,6 @@ const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
 const ENV_VARS: Record<keyof FeatureFlags, string> = {
   kroger: 'NEXT_PUBLIC_FEATURE_KROGER',
   instacart: 'NEXT_PUBLIC_FEATURE_INSTACART',
-  walmart: 'NEXT_PUBLIC_FEATURE_WALMART',
   ratings: 'NEXT_PUBLIC_FEATURE_RATINGS',
   aboutPage: 'NEXT_PUBLIC_FEATURE_ABOUT_PAGE',
   privacyPage: 'NEXT_PUBLIC_FEATURE_PRIVACY_PAGE',

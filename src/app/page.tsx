@@ -16,11 +16,10 @@ export default async function Home() {
   // Read once per request and passed through so client and server agree.
   const flagsForProviders = getFlags();
   // Which storefronts exist and which are actually connected. Flagged-off
-  // providers (e.g. Walmart when NEXT_PUBLIC_FEATURE_WALMART=false) are
+  // providers (e.g. Instacart when NEXT_PUBLIC_FEATURE_INSTACART=false) are
   // dropped here so the picker never shows them.
   const providers = describeGroceryProviders({
     hiddenIds: [
-      ...(flagsForProviders.walmart ? [] : ['walmart']),
       ...(flagsForProviders.instacart ? [] : ['instacart']),
       // Kroger is only registered when its flag is on, so nothing to hide;
       // listed here for symmetry so a reviewer sees every flag in one place.

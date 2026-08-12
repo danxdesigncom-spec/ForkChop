@@ -21,9 +21,7 @@ const EXPORT_OPTION = 'list';
 
 const PROVIDER_EMOJI: Record<string, string> = {
   instacart: '🥕',
-  walmart: '🔵',
   kroger: '🛒',
-  mock: '🐷',
 };
 
 interface Props {

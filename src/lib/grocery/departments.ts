@@ -1,5 +1,5 @@
 /**
- * Store department names, shared between the demo provider and the basket UI.
+ * Store department names, shared between the providers and the basket UI.
  *
  * A real provider supplies its own aisle names on each offer plus a
  * `departmentOrder` on the cart, so the UI never has to hardcode a taxonomy —

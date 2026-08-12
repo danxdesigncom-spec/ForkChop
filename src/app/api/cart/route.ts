@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { ProviderNotConfiguredError, disabledGroceryProviderIds, getGroceryProvider } from '@/lib/grocery';
+import {
+  ProviderNotConfiguredError,
+  defaultGroceryProviderId,
+  disabledGroceryProviderIds,
+  getGroceryProvider,
+} from '@/lib/grocery';
 import { getAllIngredients } from '@/lib/db/queries';
 import { getFlags } from '@/lib/flags';
 
@@ -64,7 +69,7 @@ export async function POST(request: Request) {
   // Refuse flagged-off providers even if the client asks for one directly.
   // The UI already hides them, but a naive script hitting /api/cart could
   // still address a disabled partner otherwise.
-  const requested = parsed.data.provider ?? process.env.FORKCHOP_GROCERY_PROVIDER ?? 'mock';
+  const requested = parsed.data.provider ?? defaultGroceryProviderId();
   const disabled = new Set(disabledGroceryProviderIds(getFlags()));
   if (disabled.has(requested)) {
     return NextResponse.json(

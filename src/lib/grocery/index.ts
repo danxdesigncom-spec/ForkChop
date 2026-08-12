@@ -1,5 +1,4 @@
 import { getAllIngredients } from '../db/queries';
-import { createMockProvider } from './mock-provider';
 import { PARTNER_CONFIGS, createPartnerProvider } from './partner-providers';
 import { createInstacartProvider } from './instacart-provider';
 import { createKrogerProvider } from './kroger-provider';
@@ -16,14 +15,16 @@ export { ProviderNotConfiguredError } from './partner-providers';
  * same `GroceryProvider` interface. Partners without credentials still appear —
  * flagged `configured: false` — so the checkout picker can show them honestly
  * rather than hiding the fact they exist.
+ *
+ * Only real storefronts live here. The demo/mock store was removed: it priced
+ * a basket nobody could actually order, which is exactly the kind of
+ * plausible-looking lie the partner stubs deliberately avoid telling.
  */
 function ingredientCategories(): Map<string, string> {
   return new Map(getAllIngredients().map((i) => [i.id, i.category as string]));
 }
 
 const providers = new Map<string, () => GroceryProvider>();
-
-providers.set('mock', () => createMockProvider({ categories: ingredientCategories() }));
 
 // Kroger has no API key path; it's either on (real deep link) or hidden by
 // the flag entirely.
@@ -45,7 +46,31 @@ for (const config of PARTNER_CONFIGS) {
   providers.set(config.id, () => createPartnerProvider(config, ingredientCategories()));
 }
 
-export function getGroceryProvider(id = process.env.FORKCHOP_GROCERY_PROVIDER ?? 'mock'): GroceryProvider {
+/**
+ * Which provider to use when the caller doesn't name one.
+ *
+ * Resolved at call time rather than pinned to a constant, because the registry
+ * itself depends on feature flags — there is no single id that is guaranteed
+ * to be registered. Order of preference:
+ *
+ *   1. FORKCHOP_GROCERY_PROVIDER, when it names a registered provider.
+ *   2. Kroger — it deep-links without any API key, so it still works on a
+ *      deployment carrying no partner credentials at all.
+ *   3. Whatever is registered first.
+ *
+ * Previously this defaulted to the mock "demo store", which meant a
+ * misconfigured deployment silently fell back to fake prices. Now a deployment
+ * with nothing registered fails loudly in `getGroceryProvider`.
+ */
+export function defaultGroceryProviderId(): string {
+  const explicit = process.env.FORKCHOP_GROCERY_PROVIDER;
+  if (explicit && providers.has(explicit)) return explicit;
+  if (providers.has('kroger')) return 'kroger';
+  const [first] = providers.keys();
+  return first ?? '';
+}
+
+export function getGroceryProvider(id = defaultGroceryProviderId()): GroceryProvider {
   const factory = providers.get(id);
   if (!factory) {
     throw new Error(
@@ -63,8 +88,8 @@ export function listGroceryProviders(): string[] {
  * How the UI should present the checkout picker.
  *
  * `hiddenIds` filters providers out entirely — used for feature-flagged
- * partners like Walmart, so turning the flag off makes them disappear from
- * the picker and from the registry-facing API for the same request.
+ * partners, so turning a flag off makes one disappear from the picker and
+ * from the registry-facing API for the same request.
  */
 export function describeGroceryProviders(
   options: { hiddenIds?: string[] } = {},
@@ -91,12 +116,10 @@ export function describeGroceryProviders(
  * that bypasses the picker cannot still reach a flagged-off provider.
  */
 export function disabledGroceryProviderIds(flags: {
-  walmart?: boolean;
   kroger?: boolean;
   instacart?: boolean;
 }): string[] {
   const disabled: string[] = [];
-  if (flags.walmart === false) disabled.push('walmart');
   if (flags.kroger === false) disabled.push('kroger');
   if (flags.instacart === false) disabled.push('instacart');
   return disabled;
