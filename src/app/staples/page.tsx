@@ -27,7 +27,8 @@ export const metadata: Metadata = {
 };
 
 export default function StaplesPage() {
-  if (!getFlags().staplesPage) notFound();
+  const flags = getFlags();
+  if (!flags.staplesPage) notFound();
 
   // Only the ingredients flagged as staples in the catalog.
   const staples = getAllIngredients().filter((ingredient) => ingredient.isStaple);
@@ -48,7 +49,7 @@ export default function StaplesPage() {
 
   return (
     <>
-      <ContentPageHeader title="Staples" />
+      <ContentPageHeader title="Staples" flags={flags} />
 
       <main className="mx-auto max-w-3xl px-4 py-8 lg:py-12">
         <article className="space-y-6 text-sm leading-relaxed">

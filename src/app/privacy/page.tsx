@@ -25,11 +25,12 @@ export const metadata: Metadata = {
 const LAST_UPDATED = '29 July 2026';
 
 export default function PrivacyPage() {
-  if (!getFlags().privacyPage) notFound();
+  const flags = getFlags();
+  if (!flags.privacyPage) notFound();
 
   return (
     <>
-      <ContentPageHeader title="Privacy policy" />
+      <ContentPageHeader title="Privacy policy" flags={flags} />
 
       <main className="mx-auto max-w-3xl px-4 py-8 lg:py-12">
         <article className="prose prose-neutral max-w-none space-y-6 text-sm leading-relaxed">

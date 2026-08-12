@@ -543,6 +543,7 @@ export function PantryApp({
       authSetupHint={authSetupHint}
       signInOpen={signInOpen}
       onSignInOpenChange={setSignInOpen}
+      flags={flags}
     />
 
     <div className="mx-auto grid max-w-6xl gap-8 px-4 py-8 lg:grid-cols-[340px_1fr] lg:py-12">
