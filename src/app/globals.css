@@ -162,3 +162,43 @@ body::before {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Branded scrollbar for the filters sidebar. The default OS scrollbar is
+ * near-invisible on the pink theme, so people don't realise the panel
+ * scrolls. This one uses the same pink tokens as the rest of the app,
+ * stays visible even when idle, and gets stronger on hover.
+ *
+ * Firefox reads `scrollbar-color` / `scrollbar-width`; Chrome/Safari/Edge
+ * read the ::-webkit-scrollbar pseudo-elements. Both are declared so it
+ * looks the same everywhere.
+ */
+.brand-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--brand) var(--brand-soft);
+}
+
+.brand-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.brand-scrollbar::-webkit-scrollbar-track {
+  background: var(--brand-soft);
+  border-radius: 999px;
+}
+
+.brand-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--brand);
+  border: 2px solid var(--brand-soft);
+  border-radius: 999px;
+  min-height: 40px;
+}
+
+.brand-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-strong);
+}
+
+.brand-scrollbar::-webkit-scrollbar-thumb:active {
+  background: var(--brand-strong);
+}
