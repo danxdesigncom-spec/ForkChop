@@ -18,11 +18,12 @@ export const metadata: Metadata = {
 };
 
 export default function AboutPage() {
-  if (!getFlags().aboutPage) notFound();
+  const flags = getFlags();
+  if (!flags.aboutPage) notFound();
 
   return (
     <>
-      <ContentPageHeader title="About" />
+      <ContentPageHeader title="About" flags={flags} />
 
       <main className="mx-auto max-w-3xl px-4 py-8 lg:py-12">
         <article className="space-y-8 text-sm leading-relaxed">

@@ -1,17 +1,23 @@
 import Link from 'next/link';
 import { PigMascot } from './PigMascot';
+import { HamburgerMenu } from './HamburgerMenu';
+import { buildNavLinks } from '@/lib/nav-links';
+import type { FeatureFlags } from '@/lib/flags';
 
 /**
  * Header for static content pages (privacy, about, staples).
  *
  * A slimmer sibling of SiteHeader — no sign-in state, no view switching, just
- * a clickable wordmark and a way back to the kitchen. Kept separate so a bug
- * in the account menu can't take down the About page.
+ * a clickable wordmark, a way back to the kitchen and the shared hamburger
+ * menu. Kept separate so a bug in the account menu can't take down the About
+ * page.
  */
-export function ContentPageHeader({ title }: { title: string }) {
+export function ContentPageHeader({ title, flags }: { title: string; flags: FeatureFlags }) {
+  const navLinks = buildNavLinks(flags);
+
   return (
     <header className="border-b-4 border-brand bg-surface">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-4">
+      <div className="relative mx-auto flex max-w-6xl items-center gap-3 px-4 py-4">
         <Link href="/" aria-label="ForkChop home" className="flex items-center gap-3 text-left">
           <PigMascot size={44} mood="happy" />
           <span>
@@ -28,6 +34,8 @@ export function ContentPageHeader({ title }: { title: string }) {
         >
           Back to the kitchen
         </Link>
+
+        <HamburgerMenu links={navLinks} />
       </div>
     </header>
   );

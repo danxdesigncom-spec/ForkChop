@@ -3,6 +3,9 @@
 import { PigMascot } from './PigMascot';
 import { SignInPanel } from './SignInPanel';
 import { AccountMenu } from './AccountMenu';
+import { HamburgerMenu } from './HamburgerMenu';
+import { buildNavLinks } from '@/lib/nav-links';
+import type { FeatureFlags } from '@/lib/flags';
 
 export type View = 'discover' | 'saved';
 
@@ -18,6 +21,8 @@ interface Props {
   /** Opened automatically when a gated action needs a signed-in user. */
   signInOpen: boolean;
   onSignInOpenChange: (open: boolean) => void;
+  /** Feeds the hamburger menu's link list — pages not enabled here are omitted. */
+  flags: FeatureFlags;
 }
 
 export function SiteHeader({
@@ -29,12 +34,14 @@ export function SiteHeader({
   authSetupHint,
   signInOpen,
   onSignInOpenChange,
+  flags,
 }: Props) {
+  const navLinks = buildNavLinks(flags);
 
   return (
     <>
       <header className="sticky top-0 z-40 border-b-4 border-brand bg-surface/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
+        <div className="relative mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
           <button
             type="button"
             onClick={() => onViewChange('discover')}
@@ -88,6 +95,8 @@ export function SiteHeader({
                 Log in
               </button>
             )}
+
+            <HamburgerMenu links={navLinks} />
           </nav>
         </div>
       </header>
