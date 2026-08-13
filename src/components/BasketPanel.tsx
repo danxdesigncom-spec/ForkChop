@@ -1,6 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
+import { StorePicker } from './StorePicker';
+import {
+  getStoreServerSnapshot,
+  getStoreSnapshot,
+  setChosenStore,
+  subscribeToStore,
+  type ChosenStore,
+} from '@/lib/store-preference';
 import type { GroceryCart, GroceryCartItem, ProviderSummary } from '@/lib/grocery/types';
 import { formatMoney } from '@/lib/format';
 import { DEPARTMENT_ORDER, departmentIcon } from '@/lib/grocery/departments';
@@ -46,6 +54,12 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [handoffPending, setHandoffPending] = useState(false);
   const [handoffError, setHandoffError] = useState<string | null>(null);
+
+  const chosenStore = useSyncExternalStore(
+    subscribeToStore,
+    getStoreSnapshot,
+    getStoreServerSnapshot,
+  );
 
   /**
    * Hand the priced basket to the store's OAuth flow.
@@ -116,7 +130,7 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
       );
   }, [cart]);
 
-  const priceUp = async (providerId: string) => {
+  const priceUp = async (providerId: string, locationId?: string) => {
     setLoading(true);
     setError(null);
     setCart(null);
@@ -124,7 +138,12 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
       const res = await fetch('/api/cart', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, provider: providerId }),
+        body: JSON.stringify({
+          items,
+          provider: providerId,
+          // Only Kroger prices per-store today; harmless for the others.
+          locationId: locationId ?? chosenStore?.locationId,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Could not price up the basket');
@@ -140,10 +159,23 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
     setChoice(id);
     setCart(null);
     setError(null);
+    setHandoffError(null);
     if (id !== EXPORT_OPTION) {
       const provider = providers.find((p) => p.id === id);
       if (provider?.configured) void priceUp(id);
     }
+  };
+
+  /**
+   * Changing store re-prices immediately rather than waiting for the shopper
+   * to re-pick the provider — the prices on screen are now for the wrong shop,
+   * and stale numbers are worse than a brief spinner.
+   */
+  const chooseStore = (store: ChosenStore | null) => {
+    setChosenStore(store);
+    setHandoffError(null);
+    if (choice !== EXPORT_OPTION && store) void priceUp(choice, store.locationId);
+    else setCart(null);
   };
 
   if (items.length === 0) return null;
@@ -293,6 +325,17 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
                   >
                     Use the shopping list instead
                   </button>
+                </div>
+              )}
+
+              {/*
+                Store picker sits above the priced basket, because which store
+                you're pricing against is the thing that determines every
+                number below it.
+               */}
+              {choice === 'kroger' && selectedProvider?.configured && (
+                <div className="mb-3">
+                  <StorePicker chosen={chosenStore} onChoose={chooseStore} />
                 </div>
               )}
 
@@ -458,7 +501,10 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
                     >
                       {handoffPending
                         ? 'Opening…'
-                        : `Add ${cart.pricedItemCount ?? cart.items.length} items to my ${cart.providerName} cart`}
+                        : (() => {
+                            const n = cart.pricedItemCount ?? cart.items.length;
+                            return `Add ${n} item${n === 1 ? '' : 's'} to my ${cart.providerName} cart`;
+                          })()}
                     </button>
                   )}
 

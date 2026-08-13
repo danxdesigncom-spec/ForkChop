@@ -203,6 +203,69 @@ describe('Kroger provider with pricing configured', () => {
     expect(withRedirect.cartHandoffUrl).toBe('/api/kroger/authorize');
   });
 
+  it('brands the cart with the banner of the store being priced', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const href = String(url);
+        if (href.includes('/token')) return TOKEN_RESPONSE;
+        if (href.includes('/locations/')) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: { locationId: '70400385', name: 'Food 4 Less - Highland', chain: 'FOOD4LESS' },
+            }),
+          };
+        }
+        return productResponse('0001111041700', 3.49);
+      }),
+    );
+
+    const cart = await createKrogerProvider(CATEGORIES, '70400385').createCart([line('milk', 'Milk')]);
+
+    // A Food 4 Less shopper must never see a basket labelled "Kroger", nor a
+    // link to a site their store does not exist on.
+    expect(cart.providerName).toBe('Food 4 Less');
+    expect(cart.checkoutUrl).toContain('food4less.com');
+    expect(cart.checkoutUrl).not.toContain('kroger.com');
+    expect(cart.priceDisclaimer).toContain('Food 4 Less');
+  });
+
+  it('prices against the shopper’s chosen store, not the env default', async () => {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const href = String(url);
+        if (href.includes('/token')) return TOKEN_RESPONSE;
+        if (href.includes('/locations/')) {
+          return { ok: true, json: async () => ({ data: { locationId: 'x', chain: 'RALPHS' } }) };
+        }
+        seen.push(new URL(href).searchParams.get('filter.locationId') ?? '');
+        return productResponse('0001111041700', 3.49);
+      }),
+    );
+
+    await createKrogerProvider(CATEGORIES, '70300753').createCart([line('milk', 'Milk')]);
+    expect(seen).toEqual(['70300753']);
+  });
+
+  it('falls back to the Kroger banner when the store lookup fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const href = String(url);
+        if (href.includes('/token')) return TOKEN_RESPONSE;
+        if (href.includes('/locations/')) return { ok: false, json: async () => ({}) };
+        return productResponse('0001111041700', 3.49);
+      }),
+    );
+
+    const cart = await createKrogerProvider(CATEGORIES, '99999999').createCart([line('milk', 'Milk')]);
+    expect(cart.providerName).toBe('Kroger');
+    expect(cart.checkoutUrl).toContain('kroger.com');
+  });
+
   it('uses the real UPC as the SKU so the handoff addresses the priced product', async () => {
     vi.stubGlobal(
       'fetch',

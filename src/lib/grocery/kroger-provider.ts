@@ -1,10 +1,14 @@
 import { DEPARTMENT_BY_CATEGORY, DEPARTMENT_ORDER } from './departments';
 import {
   findKrogerProduct,
+  getKrogerLocation,
+  hasKrogerCredentials,
   isKrogerCartConfigured,
   isKrogerPricingConfigured,
+  krogerLocationId,
   type KrogerProduct,
 } from './kroger-api';
+import { DEFAULT_BANNER, bannerForChain, type KrogerBanner } from './kroger-banners';
 import type {
   GroceryCart,
   GroceryCartItem,
@@ -33,16 +37,18 @@ import type {
  * affected lines are simply marked unpriced rather than given a made-up number.
  */
 
-const SEARCH_URL = 'https://www.kroger.com/search';
-const CART_HOME = 'https://www.kroger.com/cart';
+function priceDisclaimerFor(banner: KrogerBanner): string {
+  return `Estimated prices — your final total is set at ${banner.name} checkout and will vary by store, availability, promotions and tax.`;
+}
 
-const PRICE_DISCLAIMER =
-  'Estimated prices — your final total is set at Kroger checkout and will vary by store, availability, promotions and tax.';
-
-function buildCheckoutUrl(items: GroceryLineItem[]): string {
+/**
+ * Deep link into the banner's own storefront, not kroger.com. A Food 4 Less
+ * shopper sent to kroger.com lands on a site their store does not exist on.
+ */
+function buildCheckoutUrl(items: GroceryLineItem[], banner: KrogerBanner): string {
   const first = items[0]?.name?.trim();
-  if (!first) return CART_HOME;
-  return `${SEARCH_URL}?${new URLSearchParams({ query: first }).toString()}`;
+  if (!first) return `https://${banner.domain}/cart`;
+  return `https://${banner.domain}/search?${new URLSearchParams({ query: first })}`;
 }
 
 /**
@@ -110,12 +116,15 @@ function pricedOffer(
 async function priceItems(
   items: GroceryLineItem[],
   categories: Map<string, string>,
+  locationId?: string,
 ): Promise<GroceryOffer[]> {
-  if (!isKrogerPricingConfigured()) {
+  if (!isKrogerPricingConfigured(locationId)) {
     return items.map((item) => unpricedOffer(item, categories));
   }
 
-  const results = await Promise.allSettled(items.map((item) => findKrogerProduct(item.name)));
+  const results = await Promise.allSettled(
+    items.map((item) => findKrogerProduct(item.name, locationId)),
+  );
 
   return items.map((item, index) => {
     const result = results[index];
@@ -126,11 +135,29 @@ async function priceItems(
   });
 }
 
+/**
+ * Which banner to brand this checkout with.
+ *
+ * Resolved from the store actually being priced, so the name and the deep-link
+ * domain always match where the shopper will really be buying. Falls back to
+ * the Kroger banner when no store is known.
+ */
+async function resolveBanner(locationId: string | undefined): Promise<KrogerBanner> {
+  const id = locationId?.trim() || krogerLocationId();
+  if (!id || !hasKrogerCredentials()) return DEFAULT_BANNER;
+  const location = await getKrogerLocation(id);
+  return bannerForChain(location?.chain);
+}
+
 async function toCart(
   items: GroceryLineItem[],
   categories: Map<string, string>,
+  locationId?: string,
 ): Promise<GroceryCart> {
-  const offers = await priceItems(items, categories);
+  const [offers, banner] = await Promise.all([
+    priceItems(items, categories, locationId),
+    resolveBanner(locationId),
+  ]);
 
   const cartItems: GroceryCartItem[] = offers.map((offer, index) => {
     const quantity = 1;
@@ -156,7 +183,9 @@ async function toCart(
   return {
     id: `kroger_${Date.now().toString(36)}`,
     providerId: 'kroger',
-    providerName: 'Kroger',
+    // Branded with the banner actually being priced, so a Food 4 Less shopper
+    // never sees a basket labelled "Kroger".
+    providerName: banner.name,
     items: cartItems,
     unavailable: [],
     subtotalCents,
@@ -164,24 +193,31 @@ async function toCart(
     totalCents: subtotalCents,
     currency: 'USD',
     departmentOrder: DEPARTMENT_ORDER,
-    checkoutUrl: buildCheckoutUrl(items),
-    estimatedDelivery: 'Delivery and pickup times chosen on kroger.com',
+    checkoutUrl: buildCheckoutUrl(items, banner),
+    estimatedDelivery: `Delivery and pickup times chosen on ${banner.domain.replace(/^www\./, '')}`,
     // Read by BasketPanel to copy the list to the clipboard before the
     // handoff. Included in the shape rather than special-cased in the UI so
     // any future provider can opt in with no UI change.
     clipboardText: buildClipboardList(items),
     // Only claim these are estimates when there is actually money on screen.
-    priceDisclaimer: pricedItemCount > 0 ? PRICE_DISCLAIMER : undefined,
+    priceDisclaimer: pricedItemCount > 0 ? priceDisclaimerFor(banner) : undefined,
     pricedItemCount,
     cartHandoffUrl: canHandOff ? '/api/kroger/authorize' : undefined,
   };
 }
 
-export function createKrogerProvider(categories: Map<string, string>): GroceryProvider {
-  const priced = isKrogerPricingConfigured();
+export function createKrogerProvider(
+  categories: Map<string, string>,
+  /** The shopper's chosen store. Falls back to KROGER_LOCATION_ID. */
+  locationId?: string,
+): GroceryProvider {
+  const priced = isKrogerPricingConfigured(locationId);
 
   return {
     id: 'kroger',
+    // The picker label stays "Kroger" — the umbrella brand — because the
+    // shopper may not have chosen a store yet, and we cannot know the banner
+    // until they do. Once a basket is priced it carries the real banner name.
     name: 'Kroger',
     currency: 'USD',
     supportsDelivery: true,
@@ -190,15 +226,17 @@ export function createKrogerProvider(categories: Map<string, string>): GroceryPr
     // is an enhancement on top, not a precondition.
     configured: true,
     deliveryNote: priced
-      ? 'Estimated prices, then hand off to kroger.com'
-      : 'Opens kroger.com with your list on the clipboard',
+      ? 'Estimated prices from your chosen store'
+      : hasKrogerCredentials()
+        ? 'Pick your store for estimated prices'
+        : 'Opens your store with the list on the clipboard',
 
     async findOffers(items) {
-      return priceItems(items, categories);
+      return priceItems(items, categories, locationId);
     },
 
     async createCart(items) {
-      return toCart(items, categories);
+      return toCart(items, categories, locationId);
     },
   };
 }

@@ -41,9 +41,21 @@ export function krogerLocationId(): string {
   return process.env.KROGER_LOCATION_ID?.trim() ?? '';
 }
 
-/** True when we can call the Products API at all. */
-export function isKrogerPricingConfigured(): boolean {
-  return Boolean(clientId() && clientSecret() && krogerLocationId());
+/**
+ * True when we can call the Products API at all.
+ *
+ * A store is required because Kroger returns no price without one, but it can
+ * come from the shopper's own choice rather than the env default — so pass
+ * their locationId when they have picked one.
+ */
+export function isKrogerPricingConfigured(locationIdOverride?: string): boolean {
+  const locationId = locationIdOverride?.trim() || krogerLocationId();
+  return Boolean(clientId() && clientSecret() && locationId);
+}
+
+/** True when credentials exist, regardless of whether a store is chosen yet. */
+export function hasKrogerCredentials(): boolean {
+  return Boolean(clientId() && clientSecret());
 }
 
 /** True when the per-user "push to cart" handoff can be attempted. */
@@ -84,52 +96,65 @@ export async function getProductToken(): Promise<string | null> {
 
   if (appToken && appToken.expiresAt > Date.now()) return appToken.token;
 
-  const res = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: basicAuthHeader(),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      scope: PRODUCT_SCOPE,
-    }),
-    cache: 'no-store',
-  });
+  // A network failure here must not propagate: every caller is expected to
+  // degrade to an unpriced basket, and an exception would instead fail the
+  // whole cart request.
+  try {
+    const res = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: basicAuthHeader(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        scope: PRODUCT_SCOPE,
+      }),
+      cache: 'no-store',
+    });
 
-  if (!res.ok) return null;
+    if (!res.ok) return null;
 
-  const json = (await res.json()) as { access_token?: string; expires_in?: number };
-  if (!json.access_token) return null;
+    const json = (await res.json()) as { access_token?: string; expires_in?: number };
+    if (!json.access_token) return null;
 
-  appToken = {
-    token: json.access_token,
-    expiresAt: Date.now() + Math.max(0, (json.expires_in ?? 1800) - 60) * 1000,
-  };
-  return appToken.token;
+    appToken = {
+      token: json.access_token,
+      expiresAt: Date.now() + Math.max(0, (json.expires_in ?? 1800) - 60) * 1000,
+    };
+    return appToken.token;
+  } catch {
+    return null;
+  }
 }
 
 /** Exchange an authorization code for a per-user token carrying CART_SCOPE. */
 export async function exchangeCodeForUserToken(code: string): Promise<string | null> {
   if (!clientId() || !clientSecret()) return null;
 
-  const res = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: basicAuthHeader(),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: krogerRedirectUri(),
-    }),
-    cache: 'no-store',
-  });
+  try {
+    const res = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: basicAuthHeader(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: krogerRedirectUri(),
+      }),
+      cache: 'no-store',
+    });
 
-  if (!res.ok) return null;
-  const json = (await res.json()) as { access_token?: string };
-  return json.access_token ?? null;
+    if (!res.ok) return null;
+    const json = (await res.json()) as { access_token?: string };
+    return json.access_token ?? null;
+  } catch {
+    // The callback route turns null into a 'failed' outcome and still lands
+    // the shopper on the store's cart page.
+    return null;
+  }
 }
 
 /* ---------------------------------------------------------------- products */
@@ -171,6 +196,8 @@ const productCache = new Map<string, { value: KrogerProduct | null; expiresAt: n
 export function clearKrogerCaches(): void {
   appToken = null;
   productCache.clear();
+  locationCache.clear();
+  zipCache.clear();
 }
 
 function toProduct(json: KrogerProductResponse): KrogerProduct | null {
@@ -211,8 +238,12 @@ function toProduct(json: KrogerProductResponse): KrogerProduct | null {
  * to the user as an estimate. Returns null on any failure; callers fall back
  * to an unpriced line rather than inventing a number.
  */
-export async function findKrogerProduct(term: string): Promise<KrogerProduct | null> {
-  const locationId = krogerLocationId();
+export async function findKrogerProduct(
+  term: string,
+  /** Overrides the env default — set when the shopper has picked their store. */
+  locationIdOverride?: string,
+): Promise<KrogerProduct | null> {
+  const locationId = locationIdOverride?.trim() || krogerLocationId();
   if (!locationId) return null;
 
   const key = `${locationId}:${term.toLowerCase().trim()}`;
@@ -242,6 +273,115 @@ export async function findKrogerProduct(term: string): Promise<KrogerProduct | n
 
   productCache.set(key, { value: product, expiresAt: Date.now() + PRODUCT_CACHE_TTL_MS });
   return product;
+}
+
+/* --------------------------------------------------------------- locations */
+
+export interface KrogerLocation {
+  locationId: string;
+  /** Banner name as Kroger brands it, e.g. "Food 4 Less - Highland Center". */
+  name: string;
+  /** Banner code — see kroger-banners.ts. */
+  chain: string;
+  addressLine1: string;
+  city: string;
+  state: string;
+  zipCode: string;
+}
+
+interface KrogerLocationResponse {
+  data?: {
+    locationId?: string;
+    name?: string;
+    chain?: string;
+    address?: {
+      addressLine1?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+    };
+  }[];
+}
+
+function toLocations(json: KrogerLocationResponse): KrogerLocation[] {
+  return (json.data ?? [])
+    .filter((entry) => entry.locationId)
+    .map((entry) => ({
+      locationId: entry.locationId as string,
+      name: entry.name ?? '',
+      chain: entry.chain ?? '',
+      addressLine1: entry.address?.addressLine1 ?? '',
+      city: entry.address?.city ?? '',
+      state: entry.address?.state ?? '',
+      zipCode: entry.address?.zipCode ?? '',
+    }));
+}
+
+/**
+ * Locations has a much tighter budget than products — 1,600 calls/day — and a
+ * store's address and banner never change, so both lookups are cached for a
+ * day rather than hours.
+ */
+const LOCATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const locationCache = new Map<string, { value: KrogerLocation | null; expiresAt: number }>();
+const zipCache = new Map<string, { value: KrogerLocation[]; expiresAt: number }>();
+
+/** Stores near a zip code, for the store picker. */
+export async function searchKrogerLocations(zipCode: string): Promise<KrogerLocation[]> {
+  const key = zipCode.trim();
+  const cached = zipCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const token = await getProductToken();
+  if (!token) return [];
+
+  const query = new URLSearchParams({
+    'filter.zipCode.near': key,
+    'filter.limit': '12',
+  });
+
+  let locations: KrogerLocation[] = [];
+  try {
+    const res = await fetch(`${API_BASE}/locations?${query}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (res.ok) locations = toLocations((await res.json()) as KrogerLocationResponse);
+  } catch {
+    locations = [];
+  }
+
+  zipCache.set(key, { value: locations, expiresAt: Date.now() + LOCATION_CACHE_TTL_MS });
+  return locations;
+}
+
+/** One store by id — used to resolve which banner to brand the checkout with. */
+export async function getKrogerLocation(locationId: string): Promise<KrogerLocation | null> {
+  const key = locationId.trim();
+  if (!key) return null;
+
+  const cached = locationCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const token = await getProductToken();
+  if (!token) return null;
+
+  let location: KrogerLocation | null = null;
+  try {
+    const res = await fetch(`${API_BASE}/locations/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const json = (await res.json()) as { data?: KrogerLocationResponse['data'] extends (infer T)[] ? T : never };
+      location = toLocations({ data: json.data ? [json.data] : [] })[0] ?? null;
+    }
+  } catch {
+    location = null;
+  }
+
+  locationCache.set(key, { value: location, expiresAt: Date.now() + LOCATION_CACHE_TTL_MS });
+  return location;
 }
 
 /* -------------------------------------------------------------------- cart */

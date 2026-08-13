@@ -24,6 +24,16 @@ const RequestSchema = z.object({
     .min(1)
     .max(100),
   provider: z.string().optional(),
+  /**
+   * The shopper's chosen store, for providers that price per-store. Bounded
+   * and character-restricted because it is interpolated into an upstream API
+   * path — Kroger ids look like "70400385" or "542FC807".
+   */
+  locationId: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9]{1,16}$/, 'Invalid store id.')
+    .optional(),
 });
 
 /**
@@ -79,7 +89,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const provider = getGroceryProvider(parsed.data.provider);
+    const provider = getGroceryProvider(parsed.data.provider, {
+      locationId: parsed.data.locationId,
+    });
     const cart = await provider.createCart(lineItems);
     return NextResponse.json({ cart });
   } catch (error) {

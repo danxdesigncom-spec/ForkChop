@@ -24,12 +24,26 @@ function ingredientCategories(): Map<string, string> {
   return new Map(getAllIngredients().map((i) => [i.id, i.category as string]));
 }
 
-const providers = new Map<string, () => GroceryProvider>();
+/**
+ * Per-request provider settings.
+ *
+ * Providers are built fresh per call rather than shared, so anything that
+ * varies by shopper — like which store to price against — arrives here rather
+ * than being baked in at module load.
+ */
+export interface ProviderOptions {
+  /** Store id chosen by the shopper, for providers that price per-store. */
+  locationId?: string;
+}
+
+const providers = new Map<string, (options: ProviderOptions) => GroceryProvider>();
 
 // Kroger has no API key path; it's either on (real deep link) or hidden by
 // the flag entirely.
 if (getFlags().kroger) {
-  providers.set('kroger', () => createKrogerProvider(ingredientCategories()));
+  providers.set('kroger', (options) =>
+    createKrogerProvider(ingredientCategories(), options.locationId),
+  );
 }
 
 for (const config of PARTNER_CONFIGS) {
@@ -45,6 +59,8 @@ for (const config of PARTNER_CONFIGS) {
   }
   providers.set(config.id, () => createPartnerProvider(config, ingredientCategories()));
 }
+
+export { createKrogerProvider };
 
 /**
  * Which provider to use when the caller doesn't name one.
@@ -70,14 +86,17 @@ export function defaultGroceryProviderId(): string {
   return first ?? '';
 }
 
-export function getGroceryProvider(id = defaultGroceryProviderId()): GroceryProvider {
+export function getGroceryProvider(
+  id = defaultGroceryProviderId(),
+  options: ProviderOptions = {},
+): GroceryProvider {
   const factory = providers.get(id);
   if (!factory) {
     throw new Error(
       `Unknown grocery provider "${id}". Registered: ${[...providers.keys()].join(', ')}`,
     );
   }
-  return factory();
+  return factory(options);
 }
 
 export function listGroceryProviders(): string[] {
