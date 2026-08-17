@@ -40,6 +40,14 @@ export interface GroceryOffer {
   inStock: boolean;
   /** Cheaper or larger alternatives the store would also accept. */
   alternatives?: Omit<GroceryOffer, 'alternatives'>[];
+  /**
+   * False when the store gave us no price for this line. Distinct from a zero
+   * price: the UI shows "—" rather than "$0.00", and an unpriced line is left
+   * out of the subtotal instead of quietly counting as free.
+   */
+  priced?: boolean;
+  /** True when `priceCents` reflects a promotion rather than the shelf price. */
+  onPromotion?: boolean;
 }
 
 export interface GroceryCartItem {
@@ -75,6 +83,22 @@ export interface GroceryCart {
    * list into their search box.
    */
   clipboardText?: string;
+  /**
+   * Set whenever the money in this cart is an approximation. The UI is
+   * required to show it next to the total — a number a shopper might budget
+   * against must never look more certain than it is.
+   *
+   * Absent means the figures are the store's own binding prices.
+   */
+  priceDisclaimer?: string;
+  /** How many line items we managed to price, for an honest "3 of 5" note. */
+  pricedItemCount?: number;
+  /**
+   * When set, the UI can offer to push this basket straight into the user's
+   * store account instead of only deep-linking. Hitting this URL starts the
+   * store's OAuth consent flow.
+   */
+  cartHandoffUrl?: string;
 }
 
 /** What the checkout picker needs to know about a provider. Never any secrets. */

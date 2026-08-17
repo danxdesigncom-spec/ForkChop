@@ -15,7 +15,7 @@ import { departmentIcon } from '@/lib/grocery/departments';
  * clipboard, or download as a text file.
  *
  * Works entirely offline and needs no provider, which is why it is always
- * available even when Instacart and Walmart+ are not connected.
+ * available even when no storefront is connected.
  */
 export function ShoppingListExport({ items }: { items: ShoppingListItem[] }) {
   const [copied, setCopied] = useState(false);

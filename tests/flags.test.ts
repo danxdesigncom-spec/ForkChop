@@ -13,7 +13,6 @@ describe('getFlags', () => {
     // Every feature has soaked long enough to be the intended experience,
     // so a fresh deploy with no env vars set gets the full app.
     const flags = getFlags();
-    expect(flags.walmart).toBe(true);
     expect(flags.kroger).toBe(true);
     expect(flags.instacart).toBe(true);
     expect(flags.ratings).toBe(true);
@@ -55,21 +54,21 @@ describe('getFlags', () => {
     // Garbage never flips the intent — every flag currently defaults to true.
     vi.stubEnv('NEXT_PUBLIC_FEATURE_KROGER', 'perhaps');
     expect(getFlags().kroger).toBe(true);
-    vi.stubEnv('NEXT_PUBLIC_FEATURE_WALMART', 'maybe');
-    expect(getFlags().walmart).toBe(true);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_RATINGS', 'maybe');
+    expect(getFlags().ratings).toBe(true);
   });
 
   it('lets Vercel disable a currently-on flag', () => {
-    vi.stubEnv('NEXT_PUBLIC_FEATURE_WALMART', 'false');
-    expect(getFlags().walmart).toBe(false);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_RATINGS', 'false');
+    expect(getFlags().ratings).toBe(false);
   });
 });
 
 describe('describeFlags', () => {
   it('lists every flag with its env var name and default', () => {
     const rows = describeFlags();
-    const walmart = rows.find((r) => r.key === 'walmart');
-    expect(walmart).toEqual({ key: 'walmart', envVar: 'NEXT_PUBLIC_FEATURE_WALMART', default: true });
+    const kroger = rows.find((r) => r.key === 'kroger');
+    expect(kroger).toEqual({ key: 'kroger', envVar: 'NEXT_PUBLIC_FEATURE_KROGER', default: true });
   });
 
   it('covers the full FeatureFlags surface', () => {
