@@ -14,6 +14,12 @@ interface Props {
   onClose: () => void;
   onToggleBasket: (ingredient: RecipeIngredient, recipeTitle: string) => void;
   onAddAllMissing: (match: RecipeMatch) => void;
+  /**
+   * Leave the recipe and open the basket. Needed because the basket bar sits
+   * behind this modal's overlay — visible but unclickable — so without a way
+   * out from in here, adding ingredients is a dead end.
+   */
+  onCheckout: () => void;
   onToggleSaved: (slug: string, recipe?: Recipe) => void;
   /** Null when the ratings feature is off; the widget is hidden entirely. */
   rating: RatingValue | null;
@@ -29,6 +35,7 @@ export function RecipeDetail({
   onClose,
   onToggleBasket,
   onAddAllMissing,
+  onCheckout,
   onToggleSaved,
   rating,
   canRate,
@@ -60,6 +67,16 @@ export function RecipeDetail({
   const haveIds = new Set(match.have.map((i) => i.id));
   const assumedIds = new Set(match.assumedStaples.map((i) => i.id));
   const missingIds = new Set(match.missing.map((i) => i.id));
+
+  /**
+   * Missing items not yet in the basket. Drives the "add" button so it
+   * disappears once there is nothing left to add, rather than sitting there
+   * unchanged after a tap and leaving the user unsure it registered.
+   */
+  const unaddedMissing = match.missing.filter((i) => !basket.has(i.id));
+  const allMissingInBasket = match.missing.length > 0 && unaddedMissing.length === 0;
+  /** Whole basket, not just this recipe — the CTA leads to all of it. */
+  const basketCount = basket.size;
 
   const statusFor = (ingredient: RecipeIngredient) => {
     if (haveIds.has(ingredient.id)) return 'have' as const;
@@ -213,17 +230,6 @@ export function RecipeDetail({
               })}
             </ul>
 
-            {match.missing.length > 0 && (
-              <button
-                type="button"
-                onClick={() => onAddAllMissing(match)}
-                className="mt-4 w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-medium text-white
-                           hover:bg-brand-strong"
-              >
-                Add all {match.missing.length} missing ingredient
-                {match.missing.length === 1 ? '' : 's'} to basket
-              </button>
-            )}
           </section>
 
           <section>
@@ -244,6 +250,71 @@ export function RecipeDetail({
             </ol>
           </section>
         </div>
+
+        {/*
+          Sticky action bar.
+
+          Sticky rather than fixed so it occupies flow at the end of the
+          scroll container — no bottom padding hack needed, and it never
+          covers the last method step.
+
+          It answers the two questions someone has after adding ingredients:
+          "did that work?" and "what now?". Before this existed the only way
+          out was the ✕, and the real Check out button — visible at the bottom
+          of the page — sat behind this modal's overlay, so clicking it just
+          dismissed the recipe.
+         */}
+        {(unaddedMissing.length > 0 || basketCount > 0) && (
+          <div className="sticky bottom-0 space-y-2 border-t border-border bg-surface p-4">
+            {allMissingInBasket && (
+              <p className="flex items-center gap-1.5 text-xs font-medium text-score-high">
+                <span aria-hidden>✓</span>
+                Everything this recipe needs is in your basket
+              </p>
+            )}
+
+            {unaddedMissing.length > 0 && (
+              <button
+                type="button"
+                onClick={() => onAddAllMissing(match)}
+                className="w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-medium text-white
+                           hover:bg-brand-strong"
+              >
+                Add {unaddedMissing.length} missing ingredient
+                {unaddedMissing.length === 1 ? '' : 's'} to basket
+              </button>
+            )}
+
+            {basketCount > 0 && (
+              <div className="flex gap-2">
+                {/*
+                  Once there is something to check out, that becomes the
+                  primary action and "add" (if still shown above) steps down
+                  to a secondary role visually by being the smaller ask.
+                 */}
+                <button
+                  type="button"
+                  onClick={onCheckout}
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold ${
+                    unaddedMissing.length > 0
+                      ? 'border-2 border-brand text-brand hover:bg-brand-soft'
+                      : 'bg-brand text-white hover:bg-brand-strong'
+                  }`}
+                >
+                  Review basket ({basketCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 rounded-xl border-2 border-border px-4 py-2.5 text-sm font-semibold
+                             hover:border-brand hover:text-brand"
+                >
+                  Keep browsing
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

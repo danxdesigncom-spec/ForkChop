@@ -120,6 +120,8 @@ export function PantryApp({
   const [error, setError] = useState<string | null>(null);
 
   const [basket, setBasket] = useState<Map<string, BasketItem>>(new Map());
+  /** Lifted so the recipe modal's "Review basket" CTA can open the panel. */
+  const [basketOpen, setBasketOpen] = useState(false);
   const [openMatch, setOpenMatch] = useState<RecipeMatch | null>(null);
 
   // Most recent request wins; earlier in-flight ones are aborted.
@@ -922,6 +924,12 @@ export function PantryApp({
           onClose={() => setOpenMatch(null)}
           onToggleBasket={toggleBasket}
           onAddAllMissing={addAllMissing}
+          onCheckout={() => {
+            // Close the recipe first: the basket sheet and this modal are both
+            // z-50 overlays, so leaving both mounted would stack them.
+            setOpenMatch(null);
+            setBasketOpen(true);
+          }}
           onToggleSaved={toggleSaved}
           rating={
             flags.ratings
@@ -945,6 +953,8 @@ export function PantryApp({
           })
         }
         onClear={() => setBasket(new Map())}
+        open={basketOpen}
+        onOpenChange={setBasketOpen}
       />
     </div>
     </>

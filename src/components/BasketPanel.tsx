@@ -37,6 +37,13 @@ interface Props {
   providers: ProviderSummary[];
   onRemove: (ingredientId: string) => void;
   onClear: () => void;
+  /**
+   * Controlled from PantryApp so the recipe modal can send someone straight
+   * here after they add ingredients, instead of leaving them to find the
+   * basket bar themselves.
+   */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 /**
@@ -46,8 +53,15 @@ interface Props {
  * for payment), a partner that is not connected yet (which says so rather than
  * pretending), or an exportable shopping list that always works.
  */
-export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
-  const [open, setOpen] = useState(false);
+export function BasketPanel({
+  items,
+  providers,
+  onRemove,
+  onClear,
+  open,
+  onOpenChange,
+}: Props) {
+  const setOpen = onOpenChange;
   const [choice, setChoice] = useState<string>(EXPORT_OPTION);
   const [cart, setCart] = useState<GroceryCart | null>(null);
   const [loading, setLoading] = useState(false);
