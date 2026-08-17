@@ -100,6 +100,13 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
 
   const selectedProvider = providers.find((p) => p.id === choice);
 
+  /**
+   * True when the store gave us no price for anything in the basket — either
+   * pricing isn't configured, or no line matched a product. Distinct from a
+   * genuinely free basket, so the money rows show "—" rather than "$0.00".
+   */
+  const nothingPriced = cart != null && (cart.pricedItemCount ?? 0) === 0;
+
   const groups = useMemo(() => {
     if (!cart) return [];
 
@@ -422,16 +429,23 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
                   <div className="mt-3 space-y-1.5 border-t border-border pt-3 text-sm">
                     <div className="flex justify-between text-muted">
                       <span>Subtotal</span>
+                      {/*
+                        Nothing priced means we know nothing about the cost —
+                        which is not the same as it costing nothing. Same rule
+                        as the line items and the department headers.
+                       */}
                       <span className="tabular-nums">
-                        {formatMoney(cart.subtotalCents, cart.currency)}
+                        {nothingPriced ? '—' : formatMoney(cart.subtotalCents, cart.currency)}
                       </span>
                     </div>
                     <div className="flex justify-between text-muted">
                       <span>Delivery</span>
                       <span className="tabular-nums">
-                        {cart.deliveryFeeCents === 0
-                          ? 'Free'
-                          : formatMoney(cart.deliveryFeeCents, cart.currency)}
+                        {nothingPriced
+                          ? '—'
+                          : cart.deliveryFeeCents === 0
+                            ? 'Free'
+                            : formatMoney(cart.deliveryFeeCents, cart.currency)}
                       </span>
                     </div>
                     <div className="flex justify-between pt-1.5 font-semibold">
@@ -450,9 +464,21 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
                         )}
                       </span>
                       <span className="tabular-nums">
-                        {formatMoney(cart.totalCents, cart.currency)}
+                        {nothingPriced ? '—' : formatMoney(cart.totalCents, cart.currency)}
                       </span>
                     </div>
+
+                    {/*
+                      With no prices at all, say so plainly instead of leaving
+                      a row of dashes to be interpreted.
+                     */}
+                    {nothingPriced && (
+                      <p className="pt-1 text-xs text-muted">
+                        No prices available for this basket — it&apos;s still a complete
+                        shopping list.
+                      </p>
+                    )}
+
                     <p className="pt-1 text-xs text-muted">
                       Estimated delivery {cart.estimatedDelivery}
                     </p>
