@@ -160,6 +160,11 @@ async function toCart(
   ]);
 
   const cartItems: GroceryCartItem[] = offers.map((offer, index) => {
+    // Starting quantity for a freshly-priced line — one unit of the matched
+    // product. This is a default, not a ceiling: the basket UI lets the
+    // shopper adjust it per line, and that edited value (not this one) is
+    // what actually gets multiplied into the displayed total and sent to
+    // Kroger's cart at handoff time. See BasketPanel's `quantities` state.
     const quantity = 1;
     return {
       offer,

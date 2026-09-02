@@ -147,12 +147,22 @@ export async function exchangeCodeForUserToken(code: string): Promise<string | n
       cache: 'no-store',
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Swallowed into `null` for the caller (the callback route turns that
+      // into a 'failed' outcome and still lands the shopper on the store's
+      // cart page) — but logged here, because a silent null makes "OAuth
+      // redirected fine, cart came back empty" indistinguishable from a
+      // network blip. A bad/expired code and a redirect_uri that doesn't
+      // exactly match what's registered on the Kroger app both land here.
+      console.error(
+        `Kroger token exchange failed: ${res.status} ${await res.text().catch(() => '')}`,
+      );
+      return null;
+    }
     const json = (await res.json()) as { access_token?: string };
     return json.access_token ?? null;
-  } catch {
-    // The callback route turns null into a 'failed' outcome and still lands
-    // the shopper on the store's cart page.
+  } catch (error) {
+    console.error('Kroger token exchange threw', error);
     return null;
   }
 }
@@ -415,8 +425,20 @@ export async function addToKrogerCart(
       body: JSON.stringify({ items: lines }),
       cache: 'no-store',
     });
+    if (!res.ok) {
+      // The callback route only sees a boolean and still lands the shopper
+      // on kroger.com/cart with a 'failed' marker either way — but without
+      // this, a 403 for a missing `cart.basic:write` grant, a 400 for a UPC
+      // Kroger doesn't recognize, and a network error are all
+      // indistinguishable after the fact. Log Kroger's own status/body so a
+      // "cart came back empty" report is actually diagnosable.
+      console.error(
+        `Kroger cart/add failed: ${res.status} ${await res.text().catch(() => '')}`,
+      );
+    }
     return res.ok;
-  } catch {
+  } catch (error) {
+    console.error('Kroger cart/add threw', error);
     return false;
   }
 }

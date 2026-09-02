@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { StorePicker } from './StorePicker';
 import {
   getStoreServerSnapshot,
@@ -26,6 +26,9 @@ export interface BasketItem {
 
 /** The always-available "no storefront" choice, alongside the real providers. */
 const EXPORT_OPTION = 'list';
+
+/** Matches the bound Kroger's cart API and our own /api/kroger/authorize schema enforce. */
+const MAX_QUANTITY = 99;
 
 const PROVIDER_EMOJI: Record<string, string> = {
   instacart: '🥕',
@@ -68,6 +71,36 @@ export function BasketPanel({
   const [error, setError] = useState<string | null>(null);
   const [handoffPending, setHandoffPending] = useState(false);
   const [handoffError, setHandoffError] = useState<string | null>(null);
+  /**
+   * Purchase quantity per line, keyed by `ingredientId` — not by `offer.sku`.
+   * The basket holds one line per ingredient, so an ingredient id is unique
+   * here, whereas two ingredients can fuzzy-match the same store product and
+   * so share a UPC; keying on the SKU would silently tie those two lines'
+   * quantities together.
+   *
+   * A provider's `GroceryCartItem.quantity` is only a starting default — this
+   * map is the live source of truth once the shopper touches the stepper, and
+   * everything downstream (line totals, the subtotal/total, and the payload
+   * sent to `/api/kroger/authorize` → Kroger's cart) reads from here.
+   */
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+
+  const quantityFor = useCallback(
+    (item: GroceryCartItem): number => quantities[item.offer.ingredientId] ?? item.quantity,
+    [quantities],
+  );
+
+  const setQuantity = (ingredientId: string, next: number) => {
+    const clamped = Math.min(MAX_QUANTITY, Math.max(1, Math.round(next)));
+    setQuantities((prev) => ({ ...prev, [ingredientId]: clamped }));
+  };
+
+  /** Priced-line total at the shopper's current quantity, not the server's default. */
+  const lineTotalFor = useCallback(
+    (item: GroceryCartItem): number =>
+      item.offer.priced === false ? 0 : item.offer.priceCents * quantityFor(item),
+    [quantityFor],
+  );
 
   const chosenStore = useSyncExternalStore(
     subscribeToStore,
@@ -94,7 +127,7 @@ export function BasketPanel({
         body: JSON.stringify({
           items: current.items
             .filter((i) => i.offer.priced)
-            .map((i) => ({ upc: i.offer.sku, quantity: i.quantity })),
+            .map((i) => ({ upc: i.offer.sku, quantity: quantityFor(i) })),
         }),
       });
       const data = await res.json();
@@ -139,7 +172,7 @@ export function BasketPanel({
       .map(([department, groupItems]) => ({
         department,
         items: groupItems,
-        subtotalCents: groupItems.reduce((sum, i) => sum + i.lineTotalCents, 0),
+        subtotalCents: groupItems.reduce((sum, i) => sum + lineTotalFor(i), 0),
         // A group where nothing could be priced shows a dash, not $0.00 —
         // same reasoning as the individual lines.
         hasPricedItem: groupItems.some((i) => i.offer.priced !== false),
@@ -149,7 +182,10 @@ export function BasketPanel({
           (rank.get(a.department) ?? order.length) - (rank.get(b.department) ?? order.length) ||
           a.department.localeCompare(b.department),
       );
-  }, [cart]);
+  }, [cart, lineTotalFor]);
+
+  const subtotalCents = groups.reduce((sum, g) => sum + g.subtotalCents, 0);
+  const totalCents = subtotalCents + (cart?.deliveryFeeCents ?? 0);
 
   const priceUp = async (providerId: string, locationId?: string) => {
     setLoading(true);
@@ -181,6 +217,10 @@ export function BasketPanel({
     setCart(null);
     setError(null);
     setHandoffError(null);
+    // A different provider means different lines (different SKUs entirely,
+    // since sku is provider-namespaced) — any quantity the shopper set for
+    // the old cart has nothing left to attach to.
+    setQuantities({});
     if (id !== EXPORT_OPTION) {
       const provider = providers.find((p) => p.id === id);
       if (provider?.configured) void priceUp(id);
@@ -212,7 +252,15 @@ export function BasketPanel({
             <p className="truncate text-xs text-muted">{items.map((i) => i.name).join(', ')}</p>
           </div>
 
-          <button type="button" onClick={onClear} className="text-xs text-muted hover:text-foreground">
+          <button
+            type="button"
+            onClick={() => {
+              onClear();
+              setCart(null);
+              setQuantities({});
+            }}
+            className="text-xs text-muted hover:text-foreground"
+          >
             Clear
           </button>
 
@@ -410,12 +458,47 @@ export function BasketPanel({
                               <p className="text-sm tabular-nums">
                                 {item.offer.priced === false
                                   ? '—'
-                                  : formatMoney(item.lineTotalCents, cart.currency)}
+                                  : formatMoney(lineTotalFor(item), cart.currency)}
                               </p>
                               {item.offer.onPromotion && (
                                 <p className="text-[10px] font-bold uppercase text-score-high">
                                   On offer
                                 </p>
+                              )}
+                              {/*
+                                Only a priced line has a real UPC and a
+                                per-unit price to multiply — an unpriced line
+                                has neither, so there's nothing a quantity
+                                control could change.
+                               */}
+                              {item.offer.priced && (
+                                <div className="mt-1 flex items-center justify-end gap-1">
+                                  <button
+                                    type="button"
+                                    aria-label={`Decrease quantity of ${item.offer.title}`}
+                                    onClick={() =>
+                                      setQuantity(item.offer.ingredientId, quantityFor(item) - 1)
+                                    }
+                                    disabled={quantityFor(item) <= 1}
+                                    className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-xs leading-none hover:border-brand disabled:opacity-40"
+                                  >
+                                    −
+                                  </button>
+                                  <span className="w-5 text-center text-xs tabular-nums" aria-live="polite">
+                                    {quantityFor(item)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    aria-label={`Increase quantity of ${item.offer.title}`}
+                                    onClick={() =>
+                                      setQuantity(item.offer.ingredientId, quantityFor(item) + 1)
+                                    }
+                                    disabled={quantityFor(item) >= MAX_QUANTITY}
+                                    className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-xs leading-none hover:border-brand disabled:opacity-40"
+                                  >
+                                    +
+                                  </button>
+                                </div>
                               )}
                               <button
                                 type="button"
@@ -449,7 +532,7 @@ export function BasketPanel({
                         as the line items and the department headers.
                        */}
                       <span className="tabular-nums">
-                        {nothingPriced ? '—' : formatMoney(cart.subtotalCents, cart.currency)}
+                        {nothingPriced ? '—' : formatMoney(subtotalCents, cart.currency)}
                       </span>
                     </div>
                     <div className="flex justify-between text-muted">
@@ -478,7 +561,7 @@ export function BasketPanel({
                         )}
                       </span>
                       <span className="tabular-nums">
-                        {nothingPriced ? '—' : formatMoney(cart.totalCents, cart.currency)}
+                        {nothingPriced ? '—' : formatMoney(totalCents, cart.currency)}
                       </span>
                     </div>
 
