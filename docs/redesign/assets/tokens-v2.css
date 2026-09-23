@@ -1,0 +1,153 @@
+/*
+ * ForkChop v2 — Garden & Radish tokens (Chef Pig brand).
+ *
+ * Import AFTER globals.css. Every rule is scoped to html[data-brand="v2"], which the root
+ * layout sets only when NEXT_PUBLIC_FEATURE_REDESIGN is on, so v1 is untouched.
+ *
+ * Existing variable names (--background, --brand, --score-*) are REDEFINED here, so every
+ * current Tailwind utility (bg-surface, text-brand…) re-skins with no component changes.
+ * New v2-only tokens are added below them; wire them into @theme inline in globals.css.
+ *
+ * Every text pair below meets WCAG 2.x AA (checked in accessibility audit v2 and on the
+ * dark-mode board). Don't introduce new text/background pairs without checking contrast.
+ *
+ * Theme resolution:
+ *   data-theme="light" → light
+ *   data-theme="dark"  → dark
+ *   no data-theme      → follows prefers-color-scheme (the "System" setting)
+ */
+
+/* ------------------------------------------------------------------ light (default) */
+html[data-brand="v2"] {
+  color-scheme: light;
+
+  /* existing names, new values */
+  --background: #F7F4EC;      /* oat */
+  --surface: #FFFFFF;         /* plate */
+  --surface-muted: #EFEBE2;   /* pantry: raised controls, segmented track */
+  --foreground: #1B221D;      /* ink */
+  --muted: #56605A;           /* thyme: secondary text (6.5:1 on white) */
+  --border: #E2E0D6;          /* line: decorative only */
+
+  --brand: #1F5F45;           /* forest: CTA fill, links, ready */
+  --brand-strong: #16452F;    /* hover / pressed, text on sprout */
+  --brand-soft: #E4F0E6;      /* sprout: selected, ready tint */
+
+  --score-high: #1F5F45;      /* Ready */
+  --score-high-soft: #E4F0E6;
+  --score-mid: #87590C;       /* Almost: saffron text (5.3:1 on tint) */
+  --score-mid-soft: #FBEFD9;
+  --score-low: #56605A;       /* Stretch: neutral, not an error */
+  --score-low-soft: #EFEBE2;
+
+  /* v2-only */
+  --line-strong: #858C86;     /* form fields, quick-add dashes (≥3:1, WCAG 1.4.11) */
+  --placeholder: #6B736D;     /* 4.9:1 on white */
+  --on-brand: #FFFFFF;        /* label on brand fill (7.5:1) */
+  --raised: #EFEBE2;
+  --selected: #FFFFFF;        /* active tab / pressed toggle on the raised track */
+  --leaf: #3E8E5E;            /* illustration only, NOT text (4.0:1) */
+  --radish: #E4717A;          /* pig + "food saved" moments; fill only */
+  --blush: #FBE3E1;
+  --radish-text: #A8364A;     /* text on blush (5.2:1) */
+  --saffron: #E8A33A;         /* ring stroke / fill only */
+  --saffron-soft: #FBEFD9;
+  --saffron-text: #87590C;
+  --chip-have: #1B221D;       /* "in your kitchen" chips */
+  --chip-have-fg: #F7F4EC;
+
+  /* Chef Pig parts that change between themes */
+  --pig-ear: #1F5F45;
+  --pig-outline: #1F5F45;
+
+  --focus-ring: 0 0 0 2px #FFFFFF, 0 0 0 4px #1F5F45;
+}
+
+/* ------------------------------------------------------------------ dark */
+html[data-brand="v2"][data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #121714;
+  --surface: #1B211D;
+  --surface-muted: #262E29;
+  --foreground: #EEF1EC;      /* 14.4:1 on surface */
+  --muted: #A7B0AA;           /* 7.4:1 on surface */
+  --border: #323C36;
+
+  --brand: #7DD3A1;           /* mint replaces forest (9.1:1 on surface) */
+  --brand-strong: #A6E3BE;
+  --brand-soft: #1E3A2B;
+
+  --score-high: #7DD3A1;
+  --score-high-soft: #1E3A2B;
+  --score-mid: #F2C572;
+  --score-mid-soft: #3A2E17;
+  --score-low: #A7B0AA;
+  --score-low-soft: #262E29;
+
+  --line-strong: #7A857D;     /* 4.3:1 on surface */
+  --placeholder: #8E988F;
+  --on-brand: #0B1F14;        /* 9.6:1 on mint */
+  --raised: #262E29;
+  --selected: #3A453F;
+  --leaf: #7DD3A1;
+  --radish: #E4717A;
+  --blush: #3A2326;
+  --radish-text: #F4A7AE;
+  --saffron: #E8A33A;
+  --saffron-soft: #3A2E17;
+  --saffron-text: #F2C572;
+  --chip-have: #E3E9E3;       /* chips invert, so what you have stays the loudest thing */
+  --chip-have-fg: #121714;
+
+  --pig-ear: #F6B8BD;
+  --pig-outline: #F6B8BD;
+
+  --focus-ring: 0 0 0 2px #121714, 0 0 0 4px #7DD3A1;
+}
+
+/* "System": no explicit choice, so follow the OS. Mirrors the block above. */
+@media (prefers-color-scheme: dark) {
+  html[data-brand="v2"]:not([data-theme]) {
+    color-scheme: dark;
+    --background: #121714; --surface: #1B211D; --surface-muted: #262E29;
+    --foreground: #EEF1EC; --muted: #A7B0AA; --border: #323C36;
+    --brand: #7DD3A1; --brand-strong: #A6E3BE; --brand-soft: #1E3A2B;
+    --score-high: #7DD3A1; --score-high-soft: #1E3A2B;
+    --score-mid: #F2C572; --score-mid-soft: #3A2E17;
+    --score-low: #A7B0AA; --score-low-soft: #262E29;
+    --line-strong: #7A857D; --placeholder: #8E988F; --on-brand: #0B1F14;
+    --raised: #262E29; --selected: #3A453F; --leaf: #7DD3A1;
+    --radish: #E4717A; --blush: #3A2326; --radish-text: #F4A7AE;
+    --saffron: #E8A33A; --saffron-soft: #3A2E17; --saffron-text: #F2C572;
+    --chip-have: #E3E9E3; --chip-have-fg: #121714;
+    --pig-ear: #F6B8BD; --pig-outline: #F6B8BD;
+    --focus-ring: 0 0 0 2px #121714, 0 0 0 4px #7DD3A1;
+  }
+}
+
+/* ------------------------------------------------------------------ base rules */
+html[data-brand="v2"] body::before { display: none; }          /* drop the v1 pink polka texture */
+
+html[data-brand="v2"] .brand-scrollbar { scrollbar-color: var(--line-strong) var(--surface-muted); }
+html[data-brand="v2"] .brand-scrollbar::-webkit-scrollbar-track { background: var(--surface-muted); }
+html[data-brand="v2"] .brand-scrollbar::-webkit-scrollbar-thumb { background: var(--line-strong); border-color: var(--surface-muted); }
+
+html[data-brand="v2"] input::placeholder,
+html[data-brand="v2"] textarea::placeholder { color: var(--placeholder); opacity: 1; }
+
+/* Focus: one ring everywhere (WCAG 2.4.7). The v1 outline is replaced, never removed without a substitute. */
+html[data-brand="v2"] :focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* Text fields: the ring goes on the whole field, not the bare <input> inside it. */
+html[data-brand="v2"] .field { border: 1.5px solid var(--line-strong); }
+html[data-brand="v2"] .field:focus-within { border-color: var(--brand); box-shadow: var(--focus-ring); }
+html[data-brand="v2"] .field input:focus-visible { box-shadow: none; }
+
+/* Windows High Contrast: box-shadow is dropped there, so restore a real outline. */
+@media (forced-colors: active) {
+  html[data-brand="v2"] :focus-visible,
+  html[data-brand="v2"] .field:focus-within { outline: 2px solid CanvasText; outline-offset: 2px; }
+}

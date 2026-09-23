@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { getFlags } from "@/lib/flags";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -52,9 +53,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // v2 tokens hang off `data-brand` (docs/redesign/00-README.md). With the
+  // flag off, <html> renders exactly as it did before the redesign.
+  const { redesign } = getFlags();
   return (
     <html
-      lang="en"
+      lang={redesign ? "en-GB" : "en"}
+      data-brand={redesign ? "v2" : undefined}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
