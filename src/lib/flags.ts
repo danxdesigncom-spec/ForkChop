@@ -43,6 +43,8 @@ export interface FeatureFlags {
   pagination: boolean;
   /** Admin backend at /admin — user + recipe management. */
   admin: boolean;
+  /** v2 brand + layout (Chef Pig, Garden & Radish). */
+  redesign: boolean;
 }
 
 /**
@@ -54,6 +56,9 @@ export interface FeatureFlags {
  * `admin: true` here only exposes the /admin/login page. Access is still
  * gated on ADMIN_EMAILS (server-only) and SUPABASE_SERVICE_ROLE_KEY — with
  * neither set, no email is on the allowlist and no one can get in.
+ *
+ * `redesign` is the exception: it's still soaking, so it defaults `false` and
+ * is switched on in Vercel Preview only until the v2 rollout.
  */
 const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
   kroger: true,
@@ -65,6 +70,7 @@ const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
   savedGrouping: true,
   pagination: true,
   admin: true,
+  redesign: false,
 };
 
 /**
@@ -81,6 +87,7 @@ const ENV_VARS: Record<keyof FeatureFlags, string> = {
   savedGrouping: 'NEXT_PUBLIC_FEATURE_SAVED_GROUPING',
   pagination: 'NEXT_PUBLIC_FEATURE_PAGINATION',
   admin: 'NEXT_PUBLIC_FEATURE_ADMIN',
+  redesign: 'NEXT_PUBLIC_FEATURE_REDESIGN',
 };
 
 /**

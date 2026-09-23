@@ -9,7 +9,7 @@ import { describeFlags, getFlags } from '@/lib/flags';
 afterEach(() => vi.unstubAllEnvs());
 
 describe('getFlags', () => {
-  it('defaults every flag on when nothing is set', () => {
+  it('defaults every shipped flag on when nothing is set', () => {
     // Every feature has soaked long enough to be the intended experience,
     // so a fresh deploy with no env vars set gets the full app.
     const flags = getFlags();
@@ -22,6 +22,20 @@ describe('getFlags', () => {
     expect(flags.savedGrouping).toBe(true);
     expect(flags.pagination).toBe(true);
     expect(flags.admin).toBe(true);
+  });
+
+  it('defaults redesign off while v2 soaks', () => {
+    expect(getFlags().redesign).toBe(false);
+  });
+
+  it('turns redesign on from NEXT_PUBLIC_FEATURE_REDESIGN', () => {
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_REDESIGN', 'true');
+    expect(getFlags().redesign).toBe(true);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_REDESIGN', 'false');
+    expect(getFlags().redesign).toBe(false);
+    // Garbage falls back to the default, which here is off.
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_REDESIGN', 'perhaps');
+    expect(getFlags().redesign).toBe(false);
   });
 
   it('reads each flag from its own env var', () => {
@@ -69,6 +83,12 @@ describe('describeFlags', () => {
     const rows = describeFlags();
     const kroger = rows.find((r) => r.key === 'kroger');
     expect(kroger).toEqual({ key: 'kroger', envVar: 'NEXT_PUBLIC_FEATURE_KROGER', default: true });
+    const redesign = rows.find((r) => r.key === 'redesign');
+    expect(redesign).toEqual({
+      key: 'redesign',
+      envVar: 'NEXT_PUBLIC_FEATURE_REDESIGN',
+      default: false,
+    });
   });
 
   it('covers the full FeatureFlags surface', () => {

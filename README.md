@@ -334,6 +334,7 @@ variables — Tailwind can only generate classes it can see at build time.
 | `FORKCHOP_GROCERY_PROVIDER` | `mock` | Default provider id |
 | `INSTACART_API_KEY` | — | Connects the Instacart checkout option |
 | `WALMART_API_KEY` | — | Connects the Walmart+ checkout option |
+| `NEXT_PUBLIC_FEATURE_REDESIGN` | `false` | v2 brand + layout; set `true` in Vercel Preview only until rollout (see `docs/redesign/`) |
 
 ## Deploying
 
@@ -346,6 +347,11 @@ there too, with a warning. So `vercel deploy` works with no configuration.
 An ephemeral database costs nothing here — it holds only seed data derived from
 files in the repo, and a full rebuild takes about 130 ms, so each cold start
 simply re-seeds. Set `FORKCHOP_DB_PATH` if you want it somewhere specific.
+
+Feature flags (`NEXT_PUBLIC_FEATURE_*`, see `src/lib/flags.ts` and
+`.env.example`) are read from the environment, and Vercel only applies env
+changes to new deployments, so changing one needs a redeploy. `NEXT_PUBLIC_FEATURE_REDESIGN` is the only one that defaults off: set
+it to `true` for the **Preview** environment only while the v2 redesign soaks.
 
 Hosts that run a normal Node process with a real filesystem (Render, Railway,
 Fly) need nothing at all: the default `./data/forkchop.db` works as it does

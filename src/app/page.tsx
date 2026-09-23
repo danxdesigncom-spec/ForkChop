@@ -4,6 +4,7 @@ import { getUser } from '@/lib/supabase/server';
 import { SUPABASE_SETUP_HINT, isSupabaseConfigured } from '@/lib/supabase/config';
 import { getFlags } from '@/lib/flags';
 import { PantryApp } from '@/components/PantryApp';
+import { PantryAppV2 } from '@/components/v2/PantryAppV2';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,11 +31,12 @@ export default async function Home() {
   // rather than flashing "Log in" and then swapping.
   const user = await getUser();
   const flags = flagsForProviders;
+  const App = flags.redesign ? PantryAppV2 : PantryApp;
 
   return (
     <>
       {/* The header lives inside PantryApp: its nav drives the same view state. */}
-      <PantryApp
+      <App
         allTags={tags}
         ingredients={ingredients}
         facets={facets}
