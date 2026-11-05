@@ -121,8 +121,28 @@
   --color-score-low: var(--score-low);
   --color-score-low-soft: var(--score-low-soft);
 
+  /*
+   * v2-only tokens (docs/redesign/02-foundations.md). They are defined in
+   * tokens-v2.css under html[data-brand="v2"]; with the redesign flag off the
+   * variables are unset and nothing uses these utilities yet.
+   */
+  --color-line-strong: var(--line-strong);
+  --color-on-brand: var(--on-brand);
+  --color-raised: var(--raised);
+  --color-selected: var(--selected);
+  --color-radish: var(--radish);
+  --color-radish-text: var(--radish-text);
+  --color-blush: var(--blush);
+  --color-saffron: var(--saffron);
+  --color-saffron-soft: var(--saffron-soft);
+  --color-saffron-text: var(--saffron-text);
+  --color-chip-have: var(--chip-have);
+  --color-chip-have-fg: var(--chip-have-fg);
+  --color-placeholder: var(--placeholder);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-fraunces);
 }
 
 body {
