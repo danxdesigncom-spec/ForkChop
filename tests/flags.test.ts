@@ -28,6 +28,17 @@ describe('getFlags', () => {
     expect(getFlags().redesign).toBe(false);
   });
 
+  it('defaults catalogThemealdb off while the import soaks', () => {
+    expect(getFlags().catalogThemealdb).toBe(false);
+  });
+
+  it('turns catalogThemealdb on from NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB', () => {
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB', 'true');
+    expect(getFlags().catalogThemealdb).toBe(true);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB', 'perhaps');
+    expect(getFlags().catalogThemealdb).toBe(false);
+  });
+
   it('turns redesign on from NEXT_PUBLIC_FEATURE_REDESIGN', () => {
     vi.stubEnv('NEXT_PUBLIC_FEATURE_REDESIGN', 'true');
     expect(getFlags().redesign).toBe(true);
@@ -87,6 +98,11 @@ describe('describeFlags', () => {
     expect(redesign).toEqual({
       key: 'redesign',
       envVar: 'NEXT_PUBLIC_FEATURE_REDESIGN',
+      default: false,
+    });
+    expect(rows.find((r) => r.key === 'catalogThemealdb')).toEqual({
+      key: 'catalogThemealdb',
+      envVar: 'NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB',
       default: false,
     });
   });

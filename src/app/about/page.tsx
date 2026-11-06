@@ -89,6 +89,21 @@ export default function AboutPage() {
               browser&apos;s built-in speech recognition — no third-party service is contacted
               through us.
             </p>
+            {flags.catalogThemealdb && (
+              <p className="mt-3">
+                Some recipes and photos are provided by{' '}
+                <a
+                  href="https://www.themealdb.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand hover:underline"
+                >
+                  TheMealDB
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </a>
+                .
+              </p>
+            )}
           </Section>
 
           <Section title="Privacy in short">

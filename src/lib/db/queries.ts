@@ -1,6 +1,8 @@
 import { getDb } from './client';
 import type { Ingredient, Recipe, RecipeIngredient, Importance, IngredientCategory } from '../types';
 import { dietsForRecipe, regionForCuisine } from '../taxonomy';
+import { getFlags } from '../flags';
+import { enabledCatalogSources } from '../catalog/sources';
 
 interface IngredientRow {
   id: string;
@@ -18,13 +20,20 @@ interface RecipeRow {
   description: string;
   cuisine: string;
   meal_types: string;
-  servings: number;
-  prep_minutes: number;
-  cook_minutes: number;
-  difficulty: string;
+  servings: number | null;
+  prep_minutes: number | null;
+  cook_minutes: number | null;
+  difficulty: string | null;
   emoji: string;
   tags: string;
   instructions: string;
+  source: string;
+  source_url: string | null;
+  licence: string | null;
+  attribution: string | null;
+  attribution_url: string | null;
+  image_url: string | null;
+  video_url: string | null;
 }
 
 interface RecipeIngredientRow extends IngredientRow {
@@ -32,6 +41,7 @@ interface RecipeIngredientRow extends IngredientRow {
   quantity: number | null;
   unit: string | null;
   note: string | null;
+  display: string | null;
   importance: string;
 }
 
@@ -64,13 +74,25 @@ export function getAliasMap(): Map<string, string> {
  * (tens of recipes) that loading it whole and scoring in memory is both simpler
  * and faster than pushing the weighted match into SQL.
  */
-export function getAllRecipes(): Recipe[] {
+/**
+ * The catalogue as the app sees it: every recipe from the enabled sources
+ * (ForkChop's own always; TheMealDB only behind its flag), and never a
+ * recipe still awaiting review.
+ *
+ * With every flag at its default this returns exactly what it did before
+ * sources existed: the seed corpus, in the same order, with the same fields.
+ * Provenance fields are only attached to imported recipes for that reason.
+ */
+export function getAllRecipes(sources: readonly string[] = enabledCatalogSources(getFlags())): Recipe[] {
   const db = getDb();
-  const recipeRows = db.prepare('SELECT * FROM recipes ORDER BY title').all() as RecipeRow[];
+  const placeholders = sources.map(() => '?').join(', ') || "''";
+  const recipeRows = db
+    .prepare(`SELECT * FROM recipes WHERE status = 'ready' AND source IN (${placeholders}) ORDER BY title`)
+    .all(...sources) as RecipeRow[];
 
   const ingredientRows = db
     .prepare(`
-      SELECT ri.recipe_id, ri.quantity, ri.unit, ri.note, ri.importance,
+      SELECT ri.recipe_id, ri.quantity, ri.unit, ri.note, ri.display, ri.importance,
              i.id, i.name, i.category, i.is_staple, i.allergens, i.is_spicy
       FROM recipe_ingredients ri
       JOIN ingredients i ON i.id = ri.ingredient_id
@@ -86,6 +108,7 @@ export function getAllRecipes(): Recipe[] {
       unit: row.unit,
       note: row.note,
       importance: row.importance as Importance,
+      ...(row.display != null ? { display: row.display } : {}),
     });
     byRecipe.set(row.recipe_id, list);
   }
@@ -103,7 +126,7 @@ export function getAllRecipes(): Recipe[] {
       servings: row.servings,
       prepMinutes: row.prep_minutes,
       cookMinutes: row.cook_minutes,
-      totalMinutes: row.prep_minutes + row.cook_minutes,
+      totalMinutes: totalMinutes(row.prep_minutes, row.cook_minutes),
       difficulty: row.difficulty,
       emoji: row.emoji,
       tags: JSON.parse(row.tags) as string[],
@@ -111,10 +134,26 @@ export function getAllRecipes(): Recipe[] {
       ingredients: byRecipe.get(row.id) ?? [],
     };
 
+    if (row.source !== 'forkchop') {
+      recipe.sourceId = row.source;
+      recipe.imageUrl = row.image_url;
+      recipe.sourceUrl = row.source_url;
+      recipe.attribution = row.attribution;
+      recipe.attributionUrl = row.attribution_url;
+      recipe.licence = row.licence;
+      recipe.videoUrl = row.video_url;
+    }
+
     // Needs the ingredients attached, so it runs once the recipe is assembled.
     recipe.diets = dietsForRecipe(recipe);
     return recipe;
   });
+}
+
+/** Null only when both are unknown; a known half on its own still says something. */
+export function totalMinutes(prep: number | null, cook: number | null): number | null {
+  if (prep == null && cook == null) return null;
+  return (prep ?? 0) + (cook ?? 0);
 }
 
 export function getRecipeBySlug(slug: string): Recipe | null {

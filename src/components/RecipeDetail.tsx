@@ -64,6 +64,17 @@ export function RecipeDetail({
     };
   }, [onClose]);
 
+  // Only the facts the source actually gave; imported recipes publish no times,
+  // servings or difficulty.
+  const meta = [
+    recipe.prepMinutes != null ? `${formatMinutes(recipe.prepMinutes)} prep` : null,
+    recipe.cookMinutes != null ? `${formatMinutes(recipe.cookMinutes)} cook` : null,
+    recipe.servings != null ? `Serves ${recipe.servings}` : null,
+    recipe.difficulty,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   const haveIds = new Set(match.have.map((i) => i.id));
   const assumedIds = new Set(match.assumedStaples.map((i) => i.id));
   const missingIds = new Set(match.missing.map((i) => i.id));
@@ -118,10 +129,7 @@ export function RecipeDetail({
             <h2 id="recipe-detail-title" className="text-xl font-semibold leading-tight">
               {recipe.title}
             </h2>
-            <p className="mt-1 text-sm text-muted">
-              {formatMinutes(recipe.prepMinutes)} prep · {formatMinutes(recipe.cookMinutes)} cook ·
-              Serves {recipe.servings} · {recipe.difficulty}
-            </p>
+            {meta && <p className="mt-1 text-sm text-muted">{meta}</p>}
           </div>
           <button
             type="button"
@@ -144,7 +152,7 @@ export function RecipeDetail({
         </header>
 
         <div className="space-y-6 p-5">
-          <p className="text-sm">{recipe.description}</p>
+          {recipe.description && <p className="text-sm">{recipe.description}</p>}
 
           <div className="flex flex-wrap gap-1.5">
             <SpiceBadge recipe={recipe} size="md" />
@@ -248,6 +256,46 @@ export function RecipeDetail({
                 </li>
               ))}
             </ol>
+            {(recipe.attribution || recipe.videoUrl) && (
+              <p className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                {recipe.attribution &&
+                  (recipe.attributionUrl ? (
+                    <a
+                      href={recipe.attributionUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-brand"
+                    >
+                      {recipe.attribution}
+                      <span className="sr-only"> (opens in a new tab)</span>
+                    </a>
+                  ) : (
+                    <span>{recipe.attribution}</span>
+                  ))}
+                {recipe.sourceUrl && recipe.sourceUrl !== recipe.attributionUrl && (
+                  <a
+                    href={recipe.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-brand"
+                  >
+                    Original recipe
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                )}
+                {recipe.videoUrl && (
+                  <a
+                    href={recipe.videoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-brand"
+                  >
+                    Watch video
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                )}
+              </p>
+            )}
           </section>
         </div>
 
