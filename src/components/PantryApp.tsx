@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { Ingredient, MatchStatus, Recipe, RecipeIngredient, RecipeMatch, ResolvedIngredient } from '@/lib/types';
-import { getServerSnapshot, getSnapshot, subscribe, updatePantryState } from '@/lib/pantry-store';
+import { useCallback, useMemo, useState } from 'react';
+import type { Ingredient, MatchStatus, RecipeMatch } from '@/lib/types';
+import { updatePantryState } from '@/lib/pantry-store';
 import { PantryInput } from './PantryInput';
 import { FilterBar } from './FilterBar';
 import { AllergyFilter } from './AllergyFilter';
@@ -11,53 +11,22 @@ import { StatsRow } from './StatsRow';
 import { PigMascot } from './PigMascot';
 import { RecipeCard, STATUS_LABEL } from './RecipeCard';
 import { RecipeDetail } from './RecipeDetail';
-import { BasketPanel, type BasketItem } from './BasketPanel';
+import { BasketPanel } from './BasketPanel';
 import { SiteHeader, type View } from './SiteHeader';
 import { InfiniteScrollSentinel } from './InfiniteScrollSentinel';
 import { SavedGroupToggle } from './SavedGroupToggle';
-import type { RatingValue } from './RecipeRating';
-import { setPantryItems, setSavedRecipes } from '@/lib/pantry-store';
-import {
-  addSavedRecipe,
-  mergeLocalIntoAccount,
-  removeSavedRecipe,
-} from '@/lib/saved-recipes';
-import {
-  addPantryItem,
-  clearPantry,
-  mergeLocalPantry,
-  removePantryItem,
-  type PantrySource,
-} from '@/lib/pantry-sync';
 import { FilterSection } from './FilterSection';
-import { ChipFilter, type ChipOption } from './ChipFilter';
-import { DIETS, MEAL_TYPES, REGIONS } from '@/lib/taxonomy';
+import { ChipFilter } from './ChipFilter';
 import type { Facets } from '@/lib/db/queries';
 import type { ProviderSummary } from '@/lib/grocery/types';
 import type { FeatureFlags } from '@/lib/flags';
 import { PAGE_SIZE, paginateBySection } from '@/lib/pagination';
 import { groupSavedRecipes, type SavedGroupBy } from '@/lib/saved-grouping';
-import { fetchRatings, saveRating, type RatingsBySlug } from '@/lib/ratings-sync';
-
-interface RecommendationsResponse {
-  pantry: ResolvedIngredient[];
-  unrecognized: string[];
-  counts: {
-    total: number;
-    ready: number;
-    almost: number;
-    searched: number;
-    excluded: number;
-    corpus: number;
-    external: number;
-  };
-  sourcesUsed?: string[];
-  notices?: string[];
-  unlocks: { ingredient: RecipeIngredient; unlocks: number; recipes: string[] }[];
-  matches: RecipeMatch[];
-}
-
-const SECTION_ORDER: MatchStatus[] = ['ready', 'almost', 'stretch'];
+import { usePantry } from '@/hooks/usePantry';
+import { useRecipeFilters } from '@/hooks/useRecipeFilters';
+import { SECTION_ORDER, useRecommendations, useSavedMatches } from '@/hooks/useRecommendations';
+import { useBasket } from '@/hooks/useBasket';
+import { useRatings } from '@/hooks/useRatings';
 
 const SECTION_BLURB: Record<MatchStatus, string> = {
   ready: 'You have everything you need for these.',
@@ -96,80 +65,45 @@ export function PantryApp({
   authSetupHint: string;
   flags: FeatureFlags;
 }) {
-  // Persisted across reloads; see src/lib/pantry-store.ts.
-  const { pantry, assumeStaples, allergens, avoidSpicy, dislikes, saved } = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getServerSnapshot,
-  );
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedDiets, setSelectedDiets] = useState<string[]>([]);
-  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
-  const [selectedMeals, setSelectedMeals] = useState<string[]>([]);
-  const [maxTotalMinutes, setMaxTotalMinutes] = useState<number | null>(null);
+  // Logic shared with v2 lives in src/hooks; this component keeps the layout.
+  const {
+    pantry,
+    assumeStaples,
+    allergens,
+    avoidSpicy,
+    dislikes,
+    saved,
+    savedSet,
+    syncNotice,
+    addToPantry,
+    removeFromPantry,
+    clearWholePantry,
+    toggleAllergen,
+    addDislike,
+    removeDislike,
+    toggleSaved,
+  } = usePantry(userEmail);
+  const {
+    selectedTags,
+    selectedDiets,
+    selectedRegions,
+    selectedMeals,
+    maxTotalMinutes,
+    setSelectedTags,
+    setSelectedDiets,
+    setSelectedRegions,
+    setSelectedMeals,
+    setMaxTotalMinutes,
+    dietOptions,
+    regionOptions,
+    mealOptions,
+  } = useRecipeFilters(facets);
   const [view, setView] = useState<View>('discover');
   const [signInOpen, setSignInOpen] = useState(false);
-  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [revealCount, setRevealCount] = useState(PAGE_SIZE);
   const [savedGroupBy, setSavedGroupBy] = useState<SavedGroupBy>('flat');
-  const [ratings, setRatings] = useState<RatingsBySlug>({});
 
-  const [data, setData] = useState<RecommendationsResponse | null>(null);
-  const [savedMatches, setSavedMatches] = useState<RecipeMatch[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [basket, setBasket] = useState<Map<string, BasketItem>>(new Map());
-  /** Lifted so the recipe modal's "Review basket" CTA can open the panel. */
-  const [basketOpen, setBasketOpen] = useState(false);
-  const [openMatch, setOpenMatch] = useState<RecipeMatch | null>(null);
-
-  // Most recent request wins; earlier in-flight ones are aborted.
-  const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    // Nothing to ask for. Any previous response stays in state but is never
-    // rendered, since every results block is gated on a non-empty pantry.
-    if (pantry.length === 0) return;
-
-    const timer = setTimeout(async () => {
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch('/api/recommendations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            pantry,
-            assumeStaples,
-            excludeAllergens: allergens.length > 0 ? allergens : undefined,
-            dislikedIngredientIds: dislikes.length > 0 ? dislikes : undefined,
-            excludeSpicy: avoidSpicy || undefined,
-            tags: selectedTags.length > 0 ? selectedTags : undefined,
-            diets: selectedDiets.length > 0 ? selectedDiets : undefined,
-            regions: selectedRegions.length > 0 ? selectedRegions : undefined,
-            mealTypes: selectedMeals.length > 0 ? selectedMeals : undefined,
-            maxTotalMinutes: maxTotalMinutes ?? undefined,
-          }),
-          signal: controller.signal,
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error ?? 'Could not fetch recommendations');
-        setData(json as RecommendationsResponse);
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        setError(err instanceof Error ? err.message : 'Something went wrong');
-      } finally {
-        setLoading(false);
-      }
-    }, 220);
-
-    return () => clearTimeout(timer);
-  }, [
+  const { data, loading, error, setError, sections } = useRecommendations({
     pantry,
     assumeStaples,
     allergens,
@@ -180,237 +114,22 @@ export function PantryApp({
     selectedRegions,
     selectedMeals,
     maxTotalMinutes,
-  ]);
+  });
+  const savedMatches = useSavedMatches({
+    enabled: view === 'saved',
+    saved,
+    pantry,
+    assumeStaples,
+    data,
+    onError: setError,
+  });
 
-  /**
-   * Snapshots of external recipes currently on screen, sent with /api/saved so
-   * saved Spoonacular recipes render without another API call.
-   */
-  const externalSnapshots = useMemo(() => {
-    const seen = new Map<string, Recipe>();
-    for (const match of [...(data?.matches ?? []), ...savedMatches]) {
-      const recipe = match.recipe;
-      if ((recipe.sourceId ?? 'local') !== 'local') seen.set(recipe.slug, recipe);
-    }
-    return [...seen.values()];
-  }, [data, savedMatches]);
+  const { basketIds, basketItems, toggleBasket, addAllMissing, removeFromBasket, clearBasket } = useBasket();
+  /** Lifted so the recipe modal's "Review basket" CTA can open the panel. */
+  const [basketOpen, setBasketOpen] = useState(false);
+  const [openMatch, setOpenMatch] = useState<RecipeMatch | null>(null);
 
-  // Saved recipes are scored against the pantry but never filtered out — the
-  // user asked for these by name, so they always appear.
-  useEffect(() => {
-    if (view !== 'saved' || saved.length === 0) return;
-
-    const controller = new AbortController();
-    (async () => {
-      try {
-        const res = await fetch('/api/saved', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slugs: saved, pantry, assumeStaples, snapshots: externalSnapshots }),
-          signal: controller.signal,
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error ?? 'Could not load your recipes');
-        setSavedMatches(json.matches as RecipeMatch[]);
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        setError(err instanceof Error ? err.message : 'Something went wrong');
-      }
-    })();
-
-    return () => controller.abort();
-  }, [view, saved, pantry, assumeStaples, externalSnapshots]);
-
-  /**
-   * Local write first so the chip appears instantly, then a write-through to
-   * the account when signed in. A failed sync surfaces a notice rather than
-   * reverting — the item is still valid on this device.
-   */
-  const addToPantry = useCallback(
-    (value: string, source: PantrySource = 'typed', barcode?: string) => {
-      const alreadyThere = getSnapshot().pantry.some(
-        (item) => item.toLowerCase() === value.toLowerCase(),
-      );
-
-      updatePantryState((current) =>
-        alreadyThere ? current : { ...current, pantry: [...current.pantry, value] },
-      );
-
-      if (alreadyThere || !userEmail) return;
-
-      void (async () => {
-        const result = await addPantryItem(value, source, barcode);
-        if (result.error) setSyncNotice(result.error);
-        else setPantryItems(result.pantry);
-      })();
-    },
-    [userEmail],
-  );
-
-  const removeFromPantry = useCallback(
-    (value: string) => {
-      updatePantryState((current) => ({
-        ...current,
-        pantry: current.pantry.filter((item) => item !== value),
-      }));
-
-      if (!userEmail) return;
-
-      void (async () => {
-        const result = await removePantryItem(value);
-        if (result.error) setSyncNotice(result.error);
-      })();
-    },
-    [userEmail],
-  );
-
-  const clearWholePantry = useCallback(() => {
-    updatePantryState((current) => ({ ...current, pantry: [] }));
-    if (!userEmail) return;
-    void (async () => {
-      const result = await clearPantry();
-      if (result.error) setSyncNotice(result.error);
-    })();
-  }, [userEmail]);
-
-  const toggleBasket = useCallback((ingredient: RecipeIngredient, recipeTitle: string) => {
-    setBasket((current) => {
-      const next = new Map(current);
-      const existing = next.get(ingredient.id);
-
-      if (existing) {
-        // Second click on the same chip removes it; clicking it from a
-        // different recipe just records the extra reason it is needed.
-        if (existing.neededFor.includes(recipeTitle)) {
-          next.delete(ingredient.id);
-          return next;
-        }
-        next.set(ingredient.id, { ...existing, neededFor: [...existing.neededFor, recipeTitle] });
-        return next;
-      }
-
-      next.set(ingredient.id, {
-        ingredientId: ingredient.id,
-        name: ingredient.name,
-        quantity: ingredient.quantity,
-        unit: ingredient.unit,
-        category: ingredient.category,
-        neededFor: [recipeTitle],
-      });
-      return next;
-    });
-  }, []);
-
-  const addAllMissing = useCallback((match: RecipeMatch) => {
-    setBasket((current) => {
-      const next = new Map(current);
-      for (const ingredient of match.missing) {
-        const existing = next.get(ingredient.id);
-        const neededFor = existing
-          ? [...new Set([...existing.neededFor, match.recipe.title])]
-          : [match.recipe.title];
-        next.set(ingredient.id, {
-          ingredientId: ingredient.id,
-          name: ingredient.name,
-          quantity: ingredient.quantity,
-          unit: ingredient.unit,
-          category: ingredient.category,
-          neededFor,
-        });
-      }
-      return next;
-    });
-  }, []);
-
-  const basketIds = useMemo(() => new Set(basket.keys()), [basket]);
-  const basketItems = useMemo(() => [...basket.values()], [basket]);
   const catalog = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients]);
-
-  const toggleAllergen = useCallback((id: string) => {
-    updatePantryState((current) => ({
-      ...current,
-      allergens: current.allergens.includes(id)
-        ? current.allergens.filter((a) => a !== id)
-        : [...current.allergens, id],
-    }));
-  }, []);
-
-  const addDislike = useCallback((id: string) => {
-    updatePantryState((current) =>
-      current.dislikes.includes(id)
-        ? current
-        : { ...current, dislikes: [...current.dislikes, id] },
-    );
-  }, []);
-
-  const removeDislike = useCallback((id: string) => {
-    updatePantryState((current) => ({
-      ...current,
-      dislikes: current.dislikes.filter((d) => d !== id),
-    }));
-  }, []);
-
-  /**
-   * Optimistic locally, then written through to the account when signed in.
-   *
-   * The local write happens first either way so the heart responds instantly;
-   * a failed sync surfaces a notice rather than silently reverting, since the
-   * save is still valid on this device.
-   */
-  const toggleSaved = useCallback(
-    (slug: string, recipe?: Recipe) => {
-      const wasSaved = getSnapshot().saved.includes(slug);
-
-      updatePantryState((current) => ({
-        ...current,
-        saved: wasSaved
-          ? current.saved.filter((s) => s !== slug)
-          : [...current.saved, slug],
-      }));
-
-      if (!userEmail) return;
-
-      void (async () => {
-        const result = wasSaved ? await removeSavedRecipe(slug) : await addSavedRecipe(slug, recipe);
-        if (result.error) {
-          setSyncNotice(result.error);
-          return;
-        }
-        // Adds return the canonical list; deletes do not, to save a round-trip.
-        if (result.slugs.length > 0) setSavedRecipes(result.slugs);
-      })();
-    },
-    [userEmail],
-  );
-
-  const savedSet = useMemo(() => new Set(saved), [saved]);
-
-  /**
-   * On sign-in, fold this browser's saves into the account and adopt the
-   * account's list. Runs once per signed-in session, not on every render.
-   *
-   * Reads the saved list via getSnapshot() rather than closing over `saved`, so
-   * this effect does not re-run — and every recipe card does not re-render —
-   * each time a heart is toggled.
-   */
-  const mergedForRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!userEmail || mergedForRef.current === userEmail) return;
-    mergedForRef.current = userEmail;
-
-    void (async () => {
-      const [recipes, pantry] = await Promise.all([
-        mergeLocalIntoAccount(getSnapshot().saved),
-        mergeLocalPantry(getSnapshot().pantry),
-      ]);
-
-      if (recipes.error) setSyncNotice(recipes.error);
-      setSavedRecipes(recipes.slugs);
-
-      if (pantry.error) setSyncNotice(pantry.error);
-      else setPantryItems(pantry.pantry);
-    })();
-  }, [userEmail]);
 
   /** Shared toggle for the multi-select chip filters. */
   const toggle = useCallback(
@@ -423,50 +142,8 @@ export function PantryApp({
   );
 
   /**
-   * Filter options, annotated with how many recipes each would match. Options
-   * nothing matches are dropped, so nobody picks a filter that can only ever
-   * return an empty list.
-   */
-  const buildOptions = useCallback(
-    (
-      definitions: readonly { id: string; label: string; emoji: string }[],
-      counts: { id: string; count: number }[],
-    ): ChipOption[] => {
-      const byId = new Map(counts.map((c) => [c.id, c.count]));
-      return definitions
-        .filter((d) => (byId.get(d.id) ?? 0) > 0)
-        .map((d) => ({ id: d.id, label: d.label, emoji: d.emoji, count: byId.get(d.id) }));
-    },
-    [],
-  );
-
-  const dietOptions = useMemo(
-    () => buildOptions(DIETS, facets.diets),
-    [buildOptions, facets.diets],
-  );
-  const regionOptions = useMemo(
-    () => buildOptions(REGIONS, facets.regions),
-    [buildOptions, facets.regions],
-  );
-  const mealOptions = useMemo(
-    () => buildOptions(MEAL_TYPES, facets.mealTypes),
-    [buildOptions, facets.mealTypes],
-  );
-
-  const sections = useMemo(() => {
-    const grouped = new Map<MatchStatus, RecipeMatch[]>();
-    for (const match of data?.matches ?? []) {
-      const list = grouped.get(match.status) ?? [];
-      list.push(match);
-      grouped.set(match.status, list);
-    }
-    return grouped;
-  }, [data]);
-
-  /**
    * Ratings load once per result-set change, keyed on the slugs currently on
-   * screen (Discover + My Recipes). A separate reducer would over-engineer
-   * this — the round-trip is small and only runs when the list mutates.
+   * screen (Discover + My Recipes).
    */
   const ratingSlugs = useMemo(() => {
     const slugs = new Set<string>();
@@ -474,33 +151,13 @@ export function PantryApp({
     for (const m of savedMatches) slugs.add(m.recipe.slug);
     return [...slugs];
   }, [data, savedMatches]);
-
-  const ratingsKey = ratingSlugs.join(',');
-  useEffect(() => {
-    if (!flags.ratings || ratingSlugs.length === 0) return;
-    let cancelled = false;
-    void (async () => {
-      const result = await fetchRatings(ratingSlugs);
-      if (!cancelled) setRatings((prev) => ({ ...prev, ...result }));
-    })();
-    return () => { cancelled = true; };
-  }, [flags.ratings, ratingsKey, ratingSlugs]);
-
-  const onRate = useCallback(
-    async (slug: string, stars: number) => {
-      if (!userEmail) { setSignInOpen(true); return; }
-      const optimistic: RatingValue = ratings[slug]
-        ? { avg: ratings[slug].avg, count: ratings[slug].count, mine: stars }
-        : { avg: stars, count: 1, mine: stars };
-      setRatings((prev) => ({ ...prev, [slug]: optimistic }));
-      const fresh = await saveRating(slug, stars);
-      if (fresh) setRatings((prev) => ({ ...prev, [slug]: fresh }));
-      // On failure, keep the optimistic value visible for this session; a
-      // reload will fetch the true state. The user-facing cost of pretending
-      // the save worked is smaller than a stars-flicker.
-    },
-    [ratings, userEmail],
-  );
+  const openSignIn = useCallback(() => setSignInOpen(true), []);
+  const { ratings, onRate } = useRatings({
+    enabled: flags.ratings,
+    slugs: ratingSlugs,
+    userEmail,
+    onSignInRequired: openSignIn,
+  });
 
   /**
    * Pagination: cap total revealed matches at revealCount, distributed across
@@ -945,14 +602,8 @@ export function PantryApp({
       <BasketPanel
         items={basketItems}
         providers={providers}
-        onRemove={(id) =>
-          setBasket((current) => {
-            const next = new Map(current);
-            next.delete(id);
-            return next;
-          })
-        }
-        onClear={() => setBasket(new Map())}
+        onRemove={removeFromBasket}
+        onClear={clearBasket}
         open={basketOpen}
         onOpenChange={setBasketOpen}
       />
