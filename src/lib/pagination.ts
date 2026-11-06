@@ -35,3 +35,41 @@ export function paginateBySection(
 
   return { visible, totalShown, totalAvailable };
 }
+
+/**
+ * v2 page numbers. Flattens the sections in `order` (Ready → Almost →
+ * Stretch, so the best matches always come first) and returns one page of
+ * them. Out-of-range pages clamp to the nearest real page. v1 keeps
+ * `paginateBySection`.
+ */
+export function paginateByPage(
+  sections: Map<MatchStatus, RecipeMatch[]>,
+  order: readonly MatchStatus[],
+  page: number,
+  pageSize: number,
+): {
+  visible: RecipeMatch[];
+  page: number;
+  pageCount: number;
+  /** 1-based index of the first match on this page, 0 when there are none. */
+  from: number;
+  /** 1-based index of the last match on this page, 0 when there are none. */
+  to: number;
+  total: number;
+} {
+  const all = order.flatMap((status) => sections.get(status) ?? []);
+  const size = Math.max(1, Math.floor(pageSize));
+  const total = all.length;
+  const pageCount = Math.max(1, Math.ceil(total / size));
+  const current = Number.isFinite(page) ? Math.min(pageCount, Math.max(1, Math.floor(page))) : 1;
+  const start = (current - 1) * size;
+  const visible = all.slice(start, start + size);
+  return {
+    visible,
+    page: current,
+    pageCount,
+    from: total === 0 ? 0 : start + 1,
+    to: total === 0 ? 0 : start + visible.length,
+    total,
+  };
+}

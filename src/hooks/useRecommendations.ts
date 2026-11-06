@@ -6,6 +6,8 @@ import type { MatchStatus, Recipe, RecipeIngredient, RecipeMatch, ResolvedIngred
 export interface RecommendationsResponse {
   pantry: ResolvedIngredient[];
   unrecognized: string[];
+  /** Close matches for unrecognised entries, to offer as "Did you mean …?". */
+  corrections?: { raw: string; ingredientId: string; name: string }[];
   counts: {
     total: number;
     ready: number;

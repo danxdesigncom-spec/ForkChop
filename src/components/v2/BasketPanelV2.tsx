@@ -78,11 +78,11 @@ function Lines({ lines, onQuantity }: Pick<BasketViewProps, 'lines' | 'onQuantit
 }
 
 function Body(props: BasketViewProps & { emptyReasonId: string }) {
-  const { lines, onQuantity, fulfilment, onFulfilment, storeLabel, storeSlot, error } = props;
+  const { lines, onQuantity, fulfilment, onFulfilment, storeLabel, storeSlot, error, onSend, sending } = props;
   if (lines.length === 0) {
     return (
       <EmptyState expression="thinking" heading="Nothing in here yet">
-        <p id={props.emptyReasonId}>Tap a missing ingredient on any recipe to add it here.</p>
+        <p>Tap + on any missing ingredient to add it here.</p>
       </EmptyState>
     );
   }
@@ -96,9 +96,12 @@ function Body(props: BasketViewProps & { emptyReasonId: string }) {
         {storeSlot}
       </div>
       {error && (
-        <p role="alert" className="text-sm text-radish-text">
-          {error}
-        </p>
+        <div role="alert" className="flex flex-col items-start gap-2 rounded-xl bg-blush p-3 text-sm text-radish-text">
+          <p>{error}</p>
+          <Button variant="secondary" onClick={onSend} disabled={sending}>
+            Retry
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -117,6 +120,11 @@ function Send({ lines, providerName, onSend, sending, emptyReasonId }: BasketVie
       >
         {sending ? `Sending to ${providerName}…` : `Send to ${providerName}`}
       </Button>
+      {empty && (
+        <p id={emptyReasonId} className="text-center text-[13px] text-muted">
+          Add at least one item to send your basket to {providerName}.
+        </p>
+      )}
       <p className="flex gap-2 text-xs leading-normal text-muted">
         <ShieldCheck aria-hidden="true" size={16} className="shrink-0" />
         You&apos;ll check out on {providerName}. ForkChop never sees payment details.

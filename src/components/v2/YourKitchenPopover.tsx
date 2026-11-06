@@ -46,8 +46,11 @@ export function YourKitchenPopover({ have, hiddenCount, onRemove, onClearAll }: 
         className="absolute left-0 top-full z-50 mt-2 w-80 rounded-2xl border border-border bg-surface p-4 shadow-lg"
       >
         <h2 id={headingId} className="font-display text-lg font-semibold text-foreground">
-          In your kitchen · {have.length}
+          Your kitchen
         </h2>
+        <p className="text-[13px] text-muted">
+          {have.length} {have.length === 1 ? 'ingredient' : 'ingredients'} · remove anything that&apos;s run out
+        </p>
         <div className="mt-3 flex max-h-64 flex-wrap gap-2 overflow-y-auto">
           {have.map((name) => (
             <HaveChip key={name} name={name} onRemove={onRemove} />

@@ -5,6 +5,7 @@ import type { Ingredient, IngredientCategory, ResolvedIngredient } from '@/lib/t
 import { categoryColor } from '@/lib/theme';
 import { VoiceInput } from './VoiceInput';
 import { BarcodeScanner } from './BarcodeScanner';
+import { QUICK_ADD } from '@/lib/quick-add';
 
 interface Props {
   pantry: string[];
@@ -17,10 +18,6 @@ interface Props {
   resolved: ResolvedIngredient[];
 }
 
-const QUICK_ADD = [
-  'Eggs', 'Chicken breast', 'Pasta', 'Rice', 'Onion', 'Garlic',
-  'Chopped tomatoes', 'Cheddar', 'Potato', 'Milk', 'Butter', 'Chickpeas',
-];
 
 export function PantryInput({ pantry, onAdd, onRemove, onClear, unrecognized, resolved }: Props) {
   const [value, setValue] = useState('');

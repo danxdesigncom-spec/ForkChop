@@ -78,7 +78,12 @@ export function RecipeCardV2({
   const footer = (
     <div className={cn('flex flex-wrap items-center gap-2', !row && 'mt-auto border-t border-raised pt-3.5')}>
       {missing.length === 0 ? (
-        <StatusTag missingCount={0} />
+        <>
+          <StatusTag missingCount={0} />
+          {match.have.length > 0 && (
+            <span className="text-[13px] text-muted">Uses {match.have.length} of yours</span>
+          )}
+        </>
       ) : (
         <>
           {!row && <span className="text-[13px] font-semibold text-saffron-text">Missing {missing.length}:</span>}
