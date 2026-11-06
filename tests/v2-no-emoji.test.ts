@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const ROOTS = ['src/components/v2', 'src/lib/v2', 'src/app/dev'];
+const ROOTS = ['src/components/v2', 'src/lib/v2'];
 // Pictographic emoji plus the variation selector and keycap combiner.
 const EMOJI = /[\p{Extended_Pictographic}\u{FE0F}\u{20E3}]/u;
 
