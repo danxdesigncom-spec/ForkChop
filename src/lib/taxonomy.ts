@@ -55,6 +55,36 @@ const REGION_BY_CUISINE: Record<string, RegionId> = {
   Scandinavian: 'european',
   'Middle Eastern': 'middle-eastern',
   Fusion: 'other',
+
+  // TheMealDB areas (strArea) not already covered above. No seed recipe uses
+  // these, so they change nothing while the catalogue flag is off.
+  Spanish: 'mediterranean',
+  Portuguese: 'mediterranean',
+  Croatian: 'mediterranean',
+  Vietnamese: 'asian',
+  Malaysian: 'asian',
+  Filipino: 'asian',
+  Korean: 'asian',
+  Canadian: 'american',
+  Jamaican: 'american',
+  Uruguayan: 'american',
+  Argentinian: 'american',
+  Venezulan: 'american', // sic: TheMealDB's spelling
+  Venezuelan: 'american',
+  Irish: 'european',
+  Dutch: 'european',
+  Polish: 'european',
+  Russian: 'european',
+  Ukrainian: 'european',
+  Norwegian: 'european',
+  Turkish: 'middle-eastern',
+  Syrian: 'middle-eastern',
+  Lebanese: 'middle-eastern',
+  'Saudi Arabian': 'middle-eastern',
+  Egyptian: 'middle-eastern',
+  Moroccan: 'middle-eastern',
+  Tunisian: 'middle-eastern',
+  Algerian: 'middle-eastern',
 };
 
 export function regionForCuisine(cuisine: string): RegionId {

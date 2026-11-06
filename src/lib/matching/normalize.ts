@@ -279,6 +279,41 @@ export function resolveIngredient(raw: string, lexicon: Lexicon): ResolvedIngred
   return miss;
 }
 
+/**
+ * Every ingredient id tied for the most specific partial match (stage 5 of
+ * `resolveIngredient`), rather than whichever one the lexicon happened to
+ * yield first.
+ *
+ * The pantry input can live with that first-wins tie-break because the user
+ * sees the chip and can correct it. A recipe import can't: "Peanut Oil" ties
+ * `peanut` and `oil`, and picking the wrong one silently changes what the
+ * recipe needs. The catalog importer uses this to tell an unambiguous partial
+ * match from a coin toss. Same preprocessing as the resolver, so the two never
+ * disagree about what the phrase contains.
+ */
+export function partialCandidates(raw: string, lexicon: Lexicon): string[] {
+  const singular = stripQuantities(tokenize(raw.trim())).map(singularizeWord);
+  const withoutStopWords = singular.filter((t) => !STOP_WORDS.has(t));
+  const stripped = withoutStopWords.filter((t) => !PREP_WORDS.has(t));
+  const searchTokens = stripped.length > 0 ? stripped : singular;
+  const searchSet = new Set(searchTokens);
+
+  let bestLength = 0;
+  let ids = new Set<string>();
+  for (const [phrase, id] of lexicon.phrases) {
+    const phraseTokens = phrase.split(' ');
+    if (phraseTokens.length > searchTokens.length) continue;
+    if (!phraseTokens.every((t) => searchSet.has(t))) continue;
+    if (phraseTokens.length > bestLength) {
+      bestLength = phraseTokens.length;
+      ids = new Set([id]);
+    } else if (phraseTokens.length === bestLength) {
+      ids.add(id);
+    }
+  }
+  return [...ids].sort();
+}
+
 /** Resolve a whole pantry, de-duplicating repeats that map to the same id. */
 export function resolvePantry(inputs: string[], lexicon: Lexicon): ResolvedIngredient[] {
   const results: ResolvedIngredient[] = [];
