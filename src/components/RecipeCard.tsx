@@ -6,11 +6,9 @@ import { categoryColor } from '@/lib/theme';
 import { MatchRing } from './MatchRing';
 import { SpiceBadge } from './SpiceBadge';
 
-export const STATUS_LABEL: Record<MatchStatus, string> = {
-  ready: 'Ready to cook',
-  almost: 'Almost there',
-  stretch: 'Worth a shop',
-};
+// Moved to src/lib so v2 can share it; re-exported for existing imports.
+import { STATUS_LABEL } from '@/lib/status-label';
+export { STATUS_LABEL };
 
 const STATUS_STYLE: Record<MatchStatus, { fg: string; soft: string }> = {
   ready: { fg: 'var(--score-high)', soft: 'var(--score-high-soft)' },
