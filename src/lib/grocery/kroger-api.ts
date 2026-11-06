@@ -17,6 +17,8 @@
  * a basket price-up costs one call per line item and prices barely move.
  */
 
+import { cartAddBody, type KrogerCartLine } from './kroger-cart';
+
 const API_BASE = 'https://api.kroger.com/v1';
 const TOKEN_URL = `${API_BASE}/connect/oauth2/token`;
 export const AUTHORIZE_URL = `${API_BASE}/connect/oauth2/authorize`;
@@ -396,10 +398,7 @@ export async function getKrogerLocation(locationId: string): Promise<KrogerLocat
 
 /* -------------------------------------------------------------------- cart */
 
-export interface KrogerCartLine {
-  upc: string;
-  quantity: number;
-}
+export type { KrogerCartLine } from './kroger-cart';
 
 /**
  * Push items into the signed-in shopper's Kroger cart.
@@ -422,7 +421,7 @@ export async function addToKrogerCart(
         Authorization: `Bearer ${userToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ items: lines }),
+      body: JSON.stringify(cartAddBody(lines)),
       cache: 'no-store',
     });
     if (!res.ok) {

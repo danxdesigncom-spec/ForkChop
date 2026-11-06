@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
-import { z } from 'zod';
 import {
   AUTHORIZE_URL,
   CART_SCOPE,
@@ -13,6 +12,7 @@ import {
   PENDING_COOKIE,
   STATE_COOKIE,
 } from '@/lib/grocery/kroger-cookies';
+import { KrogerHandoffSchema, toCartLines } from '@/lib/grocery/kroger-cart';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,22 +24,13 @@ export const dynamic = 'force-dynamic';
  * is handed back Kroger's consent URL to navigate to — the basket itself never
  * goes through the query string, where it would land in logs and history.
  *
+ * The body may carry `modality` (PICKUP or DELIVERY, default PICKUP). Every
+ * line is stamped with it, because Kroger drops lines with no fulfilment type.
+ *
  * The `state` parameter is a CSRF token: generated here, mirrored into a
  * cookie, and required to match on the way back in /api/kroger/callback.
  */
 
-const RequestSchema = z.object({
-  items: z
-    .array(
-      z.object({
-        // Kroger UPCs are numeric strings; keep it loose but bounded.
-        upc: z.string().min(1).max(32),
-        quantity: z.number().int().min(1).max(99).default(1),
-      }),
-    )
-    .min(1, 'Nothing to send to Kroger.')
-    .max(50, 'Too many items for one handoff.'),
-});
 
 export async function POST(request: Request) {
   if (!getFlags().kroger) {
@@ -59,7 +50,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
-  const parsed = RequestSchema.safeParse(body);
+  const parsed = KrogerHandoffSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? 'Invalid request.' },
@@ -93,7 +84,7 @@ export async function POST(request: Request) {
   };
 
   response.cookies.set(STATE_COOKIE, state, cookieOptions);
-  response.cookies.set(PENDING_COOKIE, JSON.stringify(parsed.data.items), cookieOptions);
+  response.cookies.set(PENDING_COOKIE, JSON.stringify(toCartLines(parsed.data)), cookieOptions);
 
   return response;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { paginateBySection } from '@/lib/pagination';
+import { paginateByPage, paginateBySection } from '@/lib/pagination';
 import type { MatchStatus, RecipeMatch } from '@/lib/types';
 
 /**
@@ -85,5 +85,39 @@ describe('paginateBySection', () => {
     const { visible, totalShown } = paginateBySection(sections({ ready: 3 }), ORDER, -5);
     expect(totalShown).toBe(0);
     expect(visible.size).toBe(0);
+  });
+});
+
+describe('paginateByPage', () => {
+  const ids = (r: ReturnType<typeof paginateByPage>) => r.visible.map((m) => m.recipe.id);
+
+  it('fills page 1 in section order', () => {
+    const r = paginateByPage(sections({ ready: 2, almost: 3, stretch: 4 }), ORDER, 1, 4);
+    expect(ids(r)).toEqual(['ready-0', 'ready-1', 'almost-0', 'almost-1']);
+    expect(r).toMatchObject({ page: 1, pageCount: 3, from: 1, to: 4, total: 9 });
+  });
+
+  it('crosses a section boundary on a middle page', () => {
+    const r = paginateByPage(sections({ ready: 2, almost: 3, stretch: 4 }), ORDER, 2, 4);
+    expect(ids(r)).toEqual(['almost-2', 'stretch-0', 'stretch-1', 'stretch-2']);
+    expect(r).toMatchObject({ page: 2, from: 5, to: 8 });
+  });
+
+  it('returns a partial last page', () => {
+    const r = paginateByPage(sections({ ready: 2, almost: 3, stretch: 4 }), ORDER, 3, 4);
+    expect(ids(r)).toEqual(['stretch-3']);
+    expect(r).toMatchObject({ page: 3, from: 9, to: 9, total: 9 });
+  });
+
+  it('clamps out-of-range pages', () => {
+    const s = sections({ ready: 2, almost: 3, stretch: 4 });
+    expect(paginateByPage(s, ORDER, 99, 4).page).toBe(3);
+    expect(paginateByPage(s, ORDER, 0, 4).page).toBe(1);
+    expect(paginateByPage(s, ORDER, Number.NaN, 4).page).toBe(1);
+  });
+
+  it('handles no matches', () => {
+    const r = paginateByPage(new Map(), ORDER, 2, 6);
+    expect(r).toEqual({ visible: [], page: 1, pageCount: 1, from: 0, to: 0, total: 0 });
   });
 });

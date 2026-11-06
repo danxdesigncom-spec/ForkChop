@@ -83,3 +83,40 @@ export function setChosenStore(store: ChosenStore | null): void {
   cachedRaw = null;
   emit();
 }
+
+/* --------------------------------------------------------------- fulfilment */
+
+/**
+ * Pickup or delivery, chosen in the v2 basket. Sent to Kroger as `modality`
+ * on every cart line. v1 has no toggle and never reads this, so it gets the
+ * server default (pickup).
+ */
+export type Fulfilment = 'pickup' | 'delivery';
+
+const FULFILMENT_KEY = 'forkchop.fulfilment.v1';
+
+export function getFulfilmentSnapshot(): Fulfilment {
+  try {
+    return localStorage.getItem(FULFILMENT_KEY) === 'delivery' ? 'delivery' : 'pickup';
+  } catch {
+    return 'pickup';
+  }
+}
+
+export function getFulfilmentServerSnapshot(): Fulfilment {
+  return 'pickup';
+}
+
+export function setFulfilment(value: Fulfilment): void {
+  try {
+    localStorage.setItem(FULFILMENT_KEY, value);
+  } catch {
+    // Not persisted; the choice still applies for this visit.
+  }
+  emit();
+}
+
+/** The Kroger API's spelling. */
+export function toKrogerModality(value: Fulfilment): 'PICKUP' | 'DELIVERY' {
+  return value === 'delivery' ? 'DELIVERY' : 'PICKUP';
+}

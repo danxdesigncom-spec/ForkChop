@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INGREDIENTS } from '@/lib/db/data/ingredients';
-import { buildLexicon, resolveIngredient, singularizeWord, suggestIngredients } from '@/lib/matching/normalize';
+import { buildLexicon, resolveIngredient, singularizeWord, suggestCorrection, suggestIngredients } from '@/lib/matching/normalize';
 import type { Ingredient } from '@/lib/types';
 
 const ingredients: Ingredient[] = INGREDIENTS.map((i) => ({
@@ -110,5 +110,18 @@ describe('suggestIngredients', () => {
 
   it('returns nothing for empty input', () => {
     expect(suggestIngredients('', lexicon)).toEqual([]);
+  });
+});
+
+describe('suggestCorrection', () => {
+  it('offers a close ingredient the resolver would not accept on its own', () => {
+    // Two edits away: too far to resolve silently, close enough to suggest.
+    expect(resolve('corgete')).toBeNull();
+    expect(suggestCorrection('corgete', lexicon)?.id).toBe('courgette');
+  });
+
+  it('returns null for something unrelated or too short', () => {
+    expect(suggestCorrection('xq', lexicon)).toBeNull();
+    expect(suggestCorrection('zzzzzzzzzzzz', lexicon)).toBeNull();
   });
 });
