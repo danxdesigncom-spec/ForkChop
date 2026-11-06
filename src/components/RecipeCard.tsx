@@ -2,6 +2,7 @@
 
 import type { Recipe, RecipeIngredient, RecipeMatch, MatchStatus } from '@/lib/types';
 import { formatMinutes } from '@/lib/format';
+import { cardImageUrl } from '@/lib/recipes/images';
 import { categoryColor } from '@/lib/theme';
 import { MatchRing } from './MatchRing';
 import { SpiceBadge } from './SpiceBadge';
@@ -56,7 +57,7 @@ export function RecipeCard({
           {recipe.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={recipe.imageUrl}
+              src={cardImageUrl(recipe.imageUrl)}
               alt=""
               loading="lazy"
               className="size-11 shrink-0 rounded-xl object-cover"
@@ -82,9 +83,18 @@ export function RecipeCard({
                 {recipe.title}
               </button>
             </h3>
-            <p className="mt-0.5 line-clamp-2 text-sm text-muted">{recipe.description}</p>
+            {recipe.description && (
+              <p className="mt-0.5 line-clamp-2 text-sm text-muted">{recipe.description}</p>
+            )}
+            {/* Only what's known: imported recipes have no time or servings, and "0 min" would be a lie. */}
             <p className="mt-1.5 text-xs text-muted">
-              {formatMinutes(recipe.totalMinutes)} · Serves {recipe.servings} · {recipe.cuisine}
+              {[
+                recipe.totalMinutes != null ? formatMinutes(recipe.totalMinutes) : null,
+                recipe.servings != null ? `Serves ${recipe.servings}` : null,
+                recipe.cuisine || null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
           </div>
 

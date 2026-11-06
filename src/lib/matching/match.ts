@@ -1,4 +1,5 @@
 import type { MatchOptions, MatchStatus, Recipe, RecipeIngredient, RecipeMatch } from '../types';
+import { compareMinutes } from '../format';
 import { recipeHeat } from '../spice';
 import { recipeMeetsDiet } from '../taxonomy';
 
@@ -181,8 +182,12 @@ export function matchRecipes(
     matches = matches.filter((m) => m.recipe.mealTypes.some((meal) => wanted.has(meal)));
   }
 
+  // An unknown time can't be shown to fit a time limit, so it doesn't. Without
+  // the null check `null <= 30` is true in JavaScript, and every imported recipe
+  // with no published time would pass a "30 minutes or less" filter.
   if (options.maxTotalMinutes != null) {
-    matches = matches.filter((m) => m.recipe.totalMinutes <= options.maxTotalMinutes!);
+    const max = options.maxTotalMinutes;
+    matches = matches.filter((m) => m.recipe.totalMinutes != null && m.recipe.totalMinutes <= max);
   }
 
   if (options.maxMissing != null) {
@@ -194,7 +199,7 @@ export function matchRecipes(
       STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
       b.score - a.score ||
       a.missing.length - b.missing.length ||
-      a.recipe.totalMinutes - b.recipe.totalMinutes ||
+      compareMinutes(a.recipe.totalMinutes, b.recipe.totalMinutes) ||
       a.recipe.title.localeCompare(b.recipe.title),
   );
 

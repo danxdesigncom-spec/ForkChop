@@ -19,6 +19,12 @@ export interface RecipeIngredient extends Ingredient {
   unit: string | null;
   note: string | null;
   importance: Importance;
+  /**
+   * The measure exactly as the source wrote it, for imported recipes. When
+   * present, the recipe page shows this instead of re-formatting
+   * quantity/unit/note, so an imperfect parse never loses information.
+   */
+  display?: string | null;
 }
 
 export interface Recipe {
@@ -33,11 +39,13 @@ export interface Recipe {
   mealTypes: string[];
   /** Diets this recipe satisfies, derived from tags and allergens. */
   diets: string[];
-  servings: number;
-  prepMinutes: number;
-  cookMinutes: number;
-  totalMinutes: number;
-  difficulty: string;
+  /** Null when the source doesn't say (TheMealDB publishes no servings or times). */
+  servings: number | null;
+  prepMinutes: number | null;
+  cookMinutes: number | null;
+  /** Null when neither prep nor cook time is known; the UI hides it rather than showing "0 min". */
+  totalMinutes: number | null;
+  difficulty: string | null;
   emoji: string;
   tags: string[];
   instructions: string[];
@@ -58,6 +66,16 @@ export interface Recipe {
    * carrying this are withheld whenever an unmappable allergy is selected.
    */
   allergensUnverified?: boolean;
+  /**
+   * Credit line for recipes ForkChop didn't write ("Recipe from TheMealDB"),
+   * linking to `attributionUrl`. Absent on ForkChop originals.
+   */
+  attribution?: string | null;
+  attributionUrl?: string | null;
+  /** Licence id the content was imported under, e.g. 'themealdb-api'. */
+  licence?: string | null;
+  /** A video walkthrough, where the source has one. */
+  videoUrl?: string | null;
 }
 
 /** How confident we are that a typed phrase means a given catalog ingredient. */

@@ -7,6 +7,7 @@ import type { Facets } from '@/lib/db/queries';
 import type { FeatureFlags } from '@/lib/flags';
 import type { ProviderSummary } from '@/lib/grocery/types';
 import type { Ingredient, MatchStatus, RecipeIngredient, RecipeMatch } from '@/lib/types';
+import { compareMinutes } from '@/lib/format';
 import { buildNavLinks } from '@/lib/nav-links';
 import { paginateByPage } from '@/lib/pagination';
 import { QUICK_ADD } from '@/lib/quick-add';
@@ -266,7 +267,7 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
     else source = new Map([[tab, sections.get(tab) ?? []]]);
     if (sort === 'quickest') {
       const flat = order.flatMap((s) => source.get(s) ?? []);
-      const sorted = [...flat].sort((a, b) => a.recipe.totalMinutes - b.recipe.totalMinutes);
+      const sorted = [...flat].sort((a, b) => compareMinutes(a.recipe.totalMinutes, b.recipe.totalMinutes));
       source = new Map([['ready', sorted]]);
       order = ['ready'];
     }
