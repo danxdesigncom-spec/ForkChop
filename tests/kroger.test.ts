@@ -70,3 +70,77 @@ describe('Kroger provider — cart shape', () => {
     // haven't been told.
   });
 });
+
+describe('Kroger cart hand-off: modality', () => {
+  it('defaults the hand-off to PICKUP and stamps every line', async () => {
+    const { KrogerHandoffSchema, toCartLines } = await import('@/lib/grocery/kroger-cart');
+    const parsed = KrogerHandoffSchema.parse({
+      items: [
+        { upc: '0001111041700', quantity: 2 },
+        { upc: '0001111060933' },
+      ],
+    });
+    expect(toCartLines(parsed)).toEqual([
+      { upc: '0001111041700', quantity: 2, modality: 'PICKUP' },
+      { upc: '0001111060933', quantity: 1, modality: 'PICKUP' },
+    ]);
+  });
+
+  it('carries DELIVERY through when chosen', async () => {
+    const { KrogerHandoffSchema, toCartLines } = await import('@/lib/grocery/kroger-cart');
+    const parsed = KrogerHandoffSchema.parse({ items: [{ upc: '1', quantity: 1 }], modality: 'DELIVERY' });
+    expect(toCartLines(parsed)[0].modality).toBe('DELIVERY');
+  });
+
+  it('rejects an invalid modality', async () => {
+    const { KrogerHandoffSchema } = await import('@/lib/grocery/kroger-cart');
+    for (const modality of ['pickup', 'SHIP', '', 3]) {
+      expect(KrogerHandoffSchema.safeParse({ items: [{ upc: '1', quantity: 1 }], modality }).success).toBe(false);
+    }
+  });
+
+  it('reads old pending cookies as PICKUP and drops lines with a bad modality', async () => {
+    const { parsePendingCart } = await import('@/lib/grocery/kroger-cart');
+    expect(parsePendingCart(JSON.stringify([{ upc: '1', quantity: 1 }]))).toEqual([
+      { upc: '1', quantity: 1, modality: 'PICKUP' },
+    ]);
+    expect(
+      parsePendingCart(
+        JSON.stringify([
+          { upc: '1', quantity: 1, modality: 'DELIVERY' },
+          { upc: '2', quantity: 1, modality: 'BOAT' },
+        ]),
+      ),
+    ).toEqual([{ upc: '1', quantity: 1, modality: 'DELIVERY' }]);
+    expect(parsePendingCart(JSON.stringify([{ upc: '2', quantity: 1, modality: 'BOAT' }]))).toBeNull();
+    expect(parsePendingCart('not json')).toBeNull();
+    expect(parsePendingCart(undefined)).toBeNull();
+  });
+
+  it('sends modality on every line of the /cart/add payload', async () => {
+    const { addToKrogerCart } = await import('@/lib/grocery/kroger-api');
+    const calls: { url: string; body: unknown }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+    try {
+      const ok = await addToKrogerCart('token', [
+        { upc: '1', quantity: 2, modality: 'DELIVERY' },
+        { upc: '2', quantity: 1, modality: 'DELIVERY' },
+      ]);
+      expect(ok).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toMatch(/\/cart\/add$/);
+    expect(calls[0].body).toEqual({
+      items: [
+        { upc: '1', quantity: 2, modality: 'DELIVERY' },
+        { upc: '2', quantity: 1, modality: 'DELIVERY' },
+      ],
+    });
+  });
+});

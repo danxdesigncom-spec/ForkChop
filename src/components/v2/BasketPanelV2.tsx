@@ -7,7 +7,8 @@ import { EmptyState } from './EmptyState';
 import { SegmentedControl } from './SegmentedControl';
 import { Sheet } from './Sheet';
 
-export type Fulfilment = 'pickup' | 'delivery';
+export type { Fulfilment } from '@/lib/store-preference';
+import type { Fulfilment } from '@/lib/store-preference';
 
 export interface BasketLine {
   /** Stable key, usually the ingredient id. */

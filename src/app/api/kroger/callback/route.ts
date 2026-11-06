@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
-import { addToKrogerCart, exchangeCodeForUserToken, type KrogerCartLine } from '@/lib/grocery/kroger-api';
+import { addToKrogerCart, exchangeCodeForUserToken } from '@/lib/grocery/kroger-api';
+import { parsePendingCart } from '@/lib/grocery/kroger-cart';
 import { PENDING_COOKIE, STATE_COOKIE } from '@/lib/grocery/kroger-cookies';
 
 export const dynamic = 'force-dynamic';
@@ -38,23 +39,6 @@ function statesMatch(a: string, b: string): boolean {
   return timingSafeEqual(left, right);
 }
 
-function parsePending(raw: string | undefined): KrogerCartLine[] | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return null;
-    const lines = parsed
-      .filter(
-        (entry): entry is KrogerCartLine =>
-          typeof entry?.upc === 'string' && Number.isInteger(entry?.quantity),
-      )
-      .map((entry) => ({ upc: entry.upc, quantity: entry.quantity }));
-    return lines.length > 0 ? lines : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
@@ -84,7 +68,7 @@ export async function GET(request: Request) {
     return finish('expired');
   }
 
-  const lines = parsePending(jar.get(PENDING_COOKIE));
+  const lines = parsePendingCart(jar.get(PENDING_COOKIE));
   if (!lines) return finish('expired');
 
   const token = await exchangeCodeForUserToken(code);
