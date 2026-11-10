@@ -115,11 +115,11 @@ export function ChefPig({ size = 40, expression = 'default', variant = 'full', t
 }
 
 /** Header lockup: chef + "fork" (ink) "chop" (brand). The link carries the name, so the SVG stays decorative. */
-export function ForkChopWordmark({ size = 40 }: { size?: number }) {
+export function ForkChopWordmark({ size = 40, textClassName }: { size?: number; textClassName?: string }) {
   return (
     <span className="inline-flex items-center gap-2.5">
       <ChefPig size={size} />
-      <span className="font-display text-[26px] font-semibold tracking-[-0.02em] text-foreground">
+      <span className={`font-display text-[26px] font-semibold tracking-[-0.02em] text-foreground${textClassName ? ` ${textClassName}` : ''}`}>
         fork<span className="text-brand">chop</span>
       </span>
     </span>

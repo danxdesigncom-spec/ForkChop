@@ -27,6 +27,12 @@ interface Props {
   search?: ReactNode;
   /** id of the results region the skip link jumps to. */
   skipTo?: string;
+  /**
+   * v2B (docs/redesign/07-ingredient-bar-b.md §7): the search shows at every
+   * width. From 768px it sits in the row (max 680px); below that it gets its
+   * own full-width row under the logo. Off: the original desktop-only search.
+   */
+  searchEverywhere?: boolean;
 }
 
 const THEME_LABELS: Record<ThemePreference, string> = {
@@ -50,12 +56,20 @@ export function SiteHeaderV2({
   links,
   search,
   skipTo = 'recipes',
+  searchEverywhere = false,
 }: Props) {
   const saved = view === 'saved';
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
-      <nav aria-label="Main" className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 md:gap-5">
+      <nav
+        aria-label="Main"
+        className={
+          searchEverywhere
+            ? 'mx-auto grid max-w-6xl grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-4 py-3 md:flex md:gap-5'
+            : 'mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 md:gap-5'
+        }
+      >
         <a
           href={`#${skipTo}`}
           className="sr-only rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-on-brand focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-50"
@@ -73,12 +87,16 @@ export function SiteHeaderV2({
           }}
           className="shrink-0 rounded-xl"
         >
-          <ForkChopWordmark size={40} />
+          {/* v2B: under 380px only the pig shows, so the row never overflows (§7). */}
+          <ForkChopWordmark size={40} textClassName={searchEverywhere ? 'max-[379px]:hidden' : undefined} />
         </Link>
 
-        {search && <div className="hidden min-w-0 flex-1 md:block">{search}</div>}
+        {search && !searchEverywhere && <div className="hidden min-w-0 flex-1 md:block">{search}</div>}
+        {search && searchEverywhere && (
+          <div className="order-last col-span-2 min-w-0 md:order-none md:max-w-[680px] md:flex-1">{search}</div>
+        )}
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className={cn('ml-auto flex items-center gap-2', searchEverywhere && 'justify-self-end')}>
           <button
             type="button"
             aria-pressed={saved}

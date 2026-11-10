@@ -52,17 +52,17 @@ export default async function Home() {
         {(flags.aboutPage || flags.privacyPage || flags.staplesPage) && (
           <p className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
             {flags.aboutPage && (
-              <a href="/about" className="text-brand hover:underline">
+              <a href="/about" className="inline-flex min-h-6 items-center text-brand hover:underline">
                 About
               </a>
             )}
             {flags.staplesPage && (
-              <a href="/staples" className="text-brand hover:underline">
+              <a href="/staples" className="inline-flex min-h-6 items-center text-brand hover:underline">
                 Staples
               </a>
             )}
             {flags.privacyPage && (
-              <a href="/privacy" className="text-brand hover:underline">
+              <a href="/privacy" className="inline-flex min-h-6 items-center text-brand hover:underline">
                 Privacy policy
               </a>
             )}

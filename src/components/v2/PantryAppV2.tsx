@@ -13,6 +13,7 @@ import { QUICK_ADD } from '@/lib/quick-add';
 import { getSpeechProvider } from '@/lib/speech';
 import { useClientCapability } from '@/lib/use-client-capability';
 import { starterSets } from '@/lib/v2/starter-sets';
+import { describePantryChange, undoPantryChange, UNDO_TIMEOUT_MS, type PantryChange } from '@/lib/v2/pantry-undo';
 import { useAnnouncer } from '@/hooks/useAnnouncer';
 import { useBasket } from '@/hooks/useBasket';
 import { useBasketCheckout } from '@/hooks/useBasketCheckout';
@@ -35,6 +36,8 @@ import { EmptyState } from './EmptyState';
 import { FilterPill } from './FilterPill';
 import { FilterOptionList, type FilterOption } from './FilterPopover';
 import { IngredientField } from './IngredientField';
+import { IngredientFieldB, type IngredientFieldBHandle } from './IngredientFieldB';
+import { KitchenTray } from './KitchenTray';
 import { MatchTabs, tabId, type MatchTab } from './MatchTabs';
 import { Pagination } from './Pagination';
 import { QuickAddChip } from './QuickAddChip';
@@ -108,6 +111,9 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
   const isDesktop = useMediaQuery('(min-width: 1024px)', true);
   const pageSize = isMobile ? 8 : 6;
   const { message, announce } = useAnnouncer();
+  /** v2B ingredient bar (docs/redesign/07-ingredient-bar-b.md). Off: the v2 bar, unchanged. */
+  const barB = flags.ingredientBarB;
+  const fieldRef = useRef<IngredientFieldBHandle>(null);
 
   const { data, loading, error, setError, sections } = useRecommendations({
     pantry: kitchen.pantry,
@@ -200,6 +206,88 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
     announce('All ingredients removed.');
     resetPage();
   }, [kitchen, announce, resetPage]);
+
+  /* ------------------------------------------------- v2B: feedback + undo */
+
+  // The latest change, offered for Undo until the next change or 8 seconds.
+  const [lastChange, setLastChange] = useState<{ change: PantryChange; id: number } | null>(null);
+  const changeId = useRef(0);
+  useEffect(() => {
+    if (!lastChange) return;
+    const timer = setTimeout(() => setLastChange(null), UNDO_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [lastChange]);
+
+  // Just-added chips get a brand ring for about two seconds.
+  const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    if (highlighted.size === 0) return;
+    const timer = setTimeout(() => setHighlighted(new Set()), 2000);
+    return () => clearTimeout(timer);
+  }, [highlighted]);
+
+  const record = useCallback((change: PantryChange) => {
+    changeId.current += 1;
+    setLastChange({ change, id: changeId.current });
+  }, []);
+
+  const addNamesB = useCallback(
+    (names: string[], source: 'typed' | 'scanned' | 'voice', barcode?: string) => {
+      const have = new Set(kitchen.pantry.map((p) => p.toLowerCase()));
+      const fresh: string[] = [];
+      for (const name of names) {
+        if (have.has(name.toLowerCase())) continue;
+        have.add(name.toLowerCase());
+        fresh.push(name);
+        kitchen.addToPantry(name, source, barcode);
+      }
+      if (fresh.length === 0) {
+        announce(names.length === 1 ? `${names[0]} is already in your kitchen.` : 'Those are already in your kitchen.');
+        return;
+      }
+      const change: PantryChange = { kind: 'add', names: fresh };
+      record(change);
+      setHighlighted(new Set(fresh));
+      pendingAnnouncement.current = describePantryChange(change);
+      resetPage();
+    },
+    [kitchen, announce, record, resetPage],
+  );
+
+  const removeB = useCallback(
+    (name: string) => {
+      const index = kitchen.pantry.indexOf(name);
+      kitchen.removeFromPantry(name);
+      record({ kind: 'remove', name, index });
+      if (kitchen.pantry.length === 1) {
+        announce(`${name} removed. Your kitchen is empty.`);
+        // The tray goes with the last chip, so focus moves to the field.
+        requestAnimationFrame(() => fieldRef.current?.focus());
+      } else {
+        pendingAnnouncement.current = `${name} removed.`;
+      }
+      resetPage();
+    },
+    [kitchen, record, announce, resetPage],
+  );
+
+  const clearB = useCallback(() => {
+    const previous = [...kitchen.pantry];
+    if (previous.length === 0) return;
+    kitchen.clearWholePantry();
+    record({ kind: 'clear', previous });
+    announce('All ingredients removed.');
+    requestAnimationFrame(() => fieldRef.current?.focus());
+    resetPage();
+  }, [kitchen, record, announce, resetPage]);
+
+  const undo = useCallback(() => {
+    if (!lastChange) return;
+    kitchen.restorePantry(undoPantryChange(kitchen.pantry, lastChange.change));
+    setLastChange(null);
+    pendingAnnouncement.current = 'Undone.';
+    resetPage();
+  }, [kitchen, lastChange, resetPage]);
 
   /* --------------------------------------------------------------- basket */
 
@@ -443,7 +531,44 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
     </ul>
   );
 
-  const field = (compact: boolean) => (
+  // Not a live region: the page's single polite region already says it (§6).
+  const undoStatus = barB && lastChange && (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[14px] border border-border bg-surface px-4 py-2.5">
+      <p className="min-w-0 flex-1 text-[15px] text-foreground">
+        <strong className="font-semibold">{describePantryChange(lastChange.change)}</strong>{' '}
+        {data && !loading && kitchen.pantry.length > 0 && <span className="text-muted">{summary()}</span>}
+      </p>
+      <Button variant="secondary" className="min-h-10! px-3.5! text-sm sm:min-h-10!" onClick={undo}>
+        Undo
+      </Button>
+    </div>
+  );
+
+  const fieldB = (placement: 'header' | 'hero') => (
+    <IngredientFieldB
+      ref={fieldRef}
+      placement={placement}
+      isMobile={isMobile}
+      announce={announce}
+      onAdd={(name, source, barcode) => addNamesB([name], source, barcode)}
+      onAddMany={(names) => addNamesB(names, 'voice')}
+    />
+  );
+
+  const trayB = (placement: 'bar' | 'inline') => (
+    <KitchenTray
+      have={kitchen.pantry}
+      onRemove={removeB}
+      onClearAll={clearB}
+      highlighted={highlighted}
+      onEmpty={() => fieldRef.current?.focus()}
+      isMobile={isMobile}
+      placement={placement}
+      status={undoStatus}
+    />
+  );
+
+  const field = (compact: boolean) => barB ? fieldB(compact ? 'header' : 'hero') : (
     <IngredientField
       have={kitchen.pantry}
       onAdd={(raw) => addIngredient(raw)}
@@ -471,7 +596,7 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
   const quickAddRow = quickAdds.length > 0 && (
     <div className="flex flex-wrap gap-2">
       {quickAdds.slice(0, 8).map((name) => (
-        <QuickAddChip key={name} name={name} onAdd={(n) => addIngredient(n)} />
+        <QuickAddChip key={name} name={name} onAdd={(n) => (barB ? addNamesB([n], 'typed') : addIngredient(n))} />
       ))}
     </div>
   );
@@ -495,7 +620,8 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
       <div className="w-full text-left">
         {field(false)}
         {fieldMessages}
-        {voiceOpen && <div className="mt-3"><VoiceInput onAdd={(v) => addIngredient(v, 'voice')} /></div>}
+        {!barB && voiceOpen && <div className="mt-3"><VoiceInput onAdd={(v) => addIngredient(v, 'voice')} /></div>}
+        {barB && (pantryEmpty ? undoStatus && <div className="mt-3">{undoStatus}</div> : <div className="mt-3">{trayB('inline')}</div>)}
       </div>
       <div className="w-full">{quickAddRow}</div>
       <div className="hidden w-full flex-col items-center gap-2 md:flex">
@@ -542,6 +668,7 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
       </EmptyState>
       <div className="flex flex-col gap-6">
         {field(false)}
+        {undoStatus}
         {quickAddRow}
         {starterSets(ingredients).map((set) => (
           <section key={set.id} aria-labelledby={`starter-${set.id}`} className="flex flex-col gap-2 rounded-[20px] border border-border bg-surface p-5">
@@ -552,6 +679,10 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
               <Button
                 variant="secondary"
                 onClick={() => {
+                  if (barB) {
+                    addNamesB(set.items, 'typed');
+                    return;
+                  }
                   for (const name of set.items) kitchen.addToPantry(name);
                   announce(`${set.label} added.`);
                 }}
@@ -579,17 +710,23 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
   const results = (
     <div className="mx-auto flex max-w-6xl gap-8 px-4 pb-32 pt-6 lg:pb-12">
       <div className="flex min-w-0 flex-1 flex-col gap-5">
-        <p className="text-sm text-muted md:hidden">
-          <span className="font-semibold text-foreground">{plural(kitchen.pantry.length, 'ingredient')}</span>
-          {' '}in your kitchen
-        </p>
-        <div className="md:hidden">
-          <YourKitchenList have={kitchen.pantry} collapsedCount={6} onRemove={removeIngredient} />
-          <div className="mt-3">{field(false)}</div>
-          {fieldMessages}
-        </div>
-        <div className="hidden md:block">{fieldMessages}</div>
-        {voiceOpen && <VoiceInput onAdd={(v) => addIngredient(v, 'voice')} />}
+        {barB ? (
+          fieldMessages
+        ) : (
+          <>
+            <p className="text-sm text-muted md:hidden">
+              <span className="font-semibold text-foreground">{plural(kitchen.pantry.length, 'ingredient')}</span>
+              {' '}in your kitchen
+            </p>
+            <div className="md:hidden">
+              <YourKitchenList have={kitchen.pantry} collapsedCount={6} onRemove={removeIngredient} />
+              <div className="mt-3">{field(false)}</div>
+              {fieldMessages}
+            </div>
+            <div className="hidden md:block">{fieldMessages}</div>
+            {voiceOpen && <VoiceInput onAdd={(v) => addIngredient(v, 'voice')} />}
+          </>
+        )}
         {filterBar}
         <div id={RESULTS_ID} className="scroll-mt-24">
           <h1
@@ -726,7 +863,9 @@ export function PantryAppV2({ ingredients, facets, providers, userEmail, authCon
         links={buildNavLinks(flags)}
         search={onResults && !pantryEmpty && view === 'discover' ? field(true) : undefined}
         skipTo={RESULTS_ID}
+        searchEverywhere={barB}
       />
+      {barB && view === 'discover' && onResults && !pantryEmpty && trayB('bar')}
       <main>{body}</main>
 
       {showBasketBar && (

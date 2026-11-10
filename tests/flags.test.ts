@@ -28,6 +28,19 @@ describe('getFlags', () => {
     expect(getFlags().redesign).toBe(false);
   });
 
+  it('defaults ingredientBarB off while version B soaks in Preview', () => {
+    expect(getFlags().ingredientBarB).toBe(false);
+  });
+
+  it('turns ingredientBarB on from NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B', () => {
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B', 'true');
+    expect(getFlags().ingredientBarB).toBe(true);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B', 'off');
+    expect(getFlags().ingredientBarB).toBe(false);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B', 'perhaps');
+    expect(getFlags().ingredientBarB).toBe(false);
+  });
+
   it('turns redesign on from NEXT_PUBLIC_FEATURE_REDESIGN', () => {
     vi.stubEnv('NEXT_PUBLIC_FEATURE_REDESIGN', 'true');
     expect(getFlags().redesign).toBe(true);
@@ -87,6 +100,11 @@ describe('describeFlags', () => {
     expect(redesign).toEqual({
       key: 'redesign',
       envVar: 'NEXT_PUBLIC_FEATURE_REDESIGN',
+      default: false,
+    });
+    expect(rows.find((r) => r.key === 'ingredientBarB')).toEqual({
+      key: 'ingredientBarB',
+      envVar: 'NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B',
       default: false,
     });
   });

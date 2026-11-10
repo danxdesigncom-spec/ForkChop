@@ -30,6 +30,7 @@ using any Next API.
 | 4 | `04-screens.md` | `redesign/04-screens` | v2 Home, Results (page numbers), Basket (+ Kroger `modality` fix), all empty and long states | No |
 | 5 | `05-a11y-qa.md` | `redesign/05-a11y` | Playwright + axe suite in CI, both themes | No |
 | 6 | `06-rollout.md` | `redesign/06-cleanup` | Flag on in Production, then remove v1 | **Yes** |
+| 7 | `07-ingredient-bar-b.md` | `redesign/07-ingredient-bar` | Ingredient bar v2B (input first, kitchen tray) behind `ingredientBarB`; also lands phase 5's Playwright + axe suite | No (flag off) |
 
 ## Architecture decisions (already made)
 
