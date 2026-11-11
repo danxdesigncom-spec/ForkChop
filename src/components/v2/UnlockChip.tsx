@@ -15,7 +15,8 @@ export function UnlockChip({ name, unlocks, onAdd }: Props) {
     <button
       type="button"
       onClick={() => onAdd(name)}
-      aria-label={`Add ${name} to basket`}
+      // Starts with the visible text (WCAG 2.5.3 label in name), then the action.
+      aria-label={`${name} +${unlocks} ${unlocks === 1 ? 'recipe' : 'recipes'}, add to basket`}
       className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border border-brand/30 bg-surface pl-2.5 pr-3.5 text-sm font-semibold text-brand hover:border-brand"
     >
       <Plus aria-hidden="true" size={16} />

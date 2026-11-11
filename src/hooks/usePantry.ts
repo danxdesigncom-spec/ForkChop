@@ -81,6 +81,36 @@ export function usePantry(userEmail: string | null) {
     })();
   }, [userEmail]);
 
+  /**
+   * Replace the pantry with `next` in one go (v2B Undo). Local first, then the
+   * difference is written through to the account item by item, using the same
+   * add/remove calls as everything else.
+   */
+  const restorePantry = useCallback(
+    (next: string[]) => {
+      const before = getSnapshot().pantry;
+      updatePantryState((current) => ({ ...current, pantry: next }));
+      if (!userEmail) return;
+
+      const had = new Set(before.map((i) => i.toLowerCase()));
+      const has = new Set(next.map((i) => i.toLowerCase()));
+      const added = next.filter((i) => !had.has(i.toLowerCase()));
+      const removed = before.filter((i) => !has.has(i.toLowerCase()));
+
+      void (async () => {
+        for (const item of removed) {
+          const result = await removePantryItem(item);
+          if (result.error) setSyncNotice(result.error);
+        }
+        for (const item of added) {
+          const result = await addPantryItem(item, 'typed');
+          if (result.error) setSyncNotice(result.error);
+        }
+      })();
+    },
+    [userEmail],
+  );
+
   const toggleAllergen = useCallback((id: string) => {
     updatePantryState((current) => ({
       ...current,
@@ -175,6 +205,7 @@ export function usePantry(userEmail: string | null) {
     addToPantry,
     removeFromPantry,
     clearWholePantry,
+    restorePantry,
     toggleAllergen,
     addDislike,
     removeDislike,
