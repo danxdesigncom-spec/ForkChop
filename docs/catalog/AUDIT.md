@@ -186,7 +186,7 @@ variable.
 - **The ≥ 85 % `ready` target is out of reach with today's taxonomy.** The first real import
   (2026-11-13: 793 fetched, 6 duplicates, 787 imported) left **179 ready (22.7 %)**. The report's
   "Fastest path" table shows the shape of the problem: the 30 highest-value additions only reach
-  about 38 %, because most review recipes are blocked by two or more rare ingredients. 85 % would
+  about 37 %, because most review recipes are blocked by two or more rare ingredients. 85 % would
   take hundreds of new taxonomy entries. See `data/sources/themealdb/import-report.md`.
 - **The resolver's partial matching is too loose for unattended import.** On real data it mapped
   "Water Chestnut" to Water, "Padron peppers" to Black pepper (both staples, so a missing
