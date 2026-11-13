@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
+import { Analytics } from "@vercel/analytics/next";
 import { getFlags } from "@/lib/flags";
 import { THEME_COOKIE, parseThemePreference, themeAttribute } from "@/lib/v2/theme-cookie";
 import "./globals.css";
@@ -91,7 +92,11 @@ export default async function RootLayout({
       data-theme={theme}
       className={`${fontVars} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        {/* Vercel Web Analytics: cookieless, and only reports on Vercel deployments. */}
+        <Analytics />
+      </body>
     </html>
   );
 }

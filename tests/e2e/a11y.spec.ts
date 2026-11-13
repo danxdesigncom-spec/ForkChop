@@ -40,6 +40,9 @@ const FAKE_SPEECH = `
 `;
 
 async function expectNoAxeViolations(page: Page, label: string) {
+  // During a client-side page change Next briefly empties <title> before the new
+  // page's metadata lands; auditing in that gap reports a false document-title.
+  await page.waitForFunction(() => document.title.trim().length > 0);
   const { violations } = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   const summary = violations.map(
     (v) => `${v.id} (${v.impact}) ×${v.nodes.length}: ${v.help} [${v.nodes[0]?.target.join(' ')}]`,
