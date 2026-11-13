@@ -3,6 +3,7 @@ import raw from './fixtures/themealdb/meals.json';
 import { importCatalog, type TheMealDbRaw } from '@/lib/catalog/themealdb';
 import { seedLexicon } from '@/lib/catalog/lexicon';
 import { enabledCatalogSources } from '@/lib/catalog/sources';
+import { THEMEALDB_OVERRIDES } from '@/lib/catalog/themealdb-overrides';
 import type { ImportedRecipe } from '@/lib/catalog/types';
 import { RECIPES } from '@/lib/db/data/recipes';
 import { buildLexicon, resolvePantry } from '@/lib/matching/normalize';
@@ -19,7 +20,7 @@ vi.stubEnv('FORKCHOP_DB_PATH', ':memory:');
 
 const lexicon = seedLexicon();
 const seeds = RECIPES.map((r) => ({ slug: r.slug, title: r.title, ingredientIds: r.ingredients.map((i) => i.id) }));
-const imported = importCatalog(raw as unknown as TheMealDbRaw, { lexicon, seeds }).catalog.recipes;
+const imported = importCatalog(raw as unknown as TheMealDbRaw, { lexicon, overrides: THEMEALDB_OVERRIDES, seeds }).catalog.recipes;
 const ready = imported.filter((r) => r.status === 'ready');
 
 type Queries = typeof import('@/lib/db/queries');
@@ -45,9 +46,9 @@ const reseed = (recipes: ImportedRecipe[]) => s.seed(c.getDb(), recipes);
 describe('seeding imported recipes', () => {
   it('inserts ready recipes alongside the 60 seed recipes', () => {
     const result = reseed(ready);
-    expect(result).toMatchObject({ recipes: 60, imported: 4 });
+    expect(result).toMatchObject({ recipes: 60, imported: 3 });
     const { n } = c.getDb().prepare("SELECT COUNT(*) AS n FROM recipes WHERE source = 'themealdb'").get() as { n: number };
-    expect(n).toBe(4);
+    expect(n).toBe(3);
   });
 
   it('refuses a needs_review recipe outright', () => {
@@ -62,7 +63,7 @@ describe('seeding imported recipes', () => {
 
   it('enforces (source, source_id) uniqueness', () => {
     const clash = { ...ready[1], sourceId: ready[0].sourceId };
-    expect(() => reseed([ready[0], clash])).toThrow(/duplicate source id "themealdb:99001"/);
+    expect(() => reseed([ready[0], clash])).toThrow(/duplicate source id "themealdb:52764"/);
   });
 
   it('is idempotent: re-seeding gives the same rows', () => {
@@ -115,8 +116,8 @@ describe('flag on: imported recipes join the same ranking', () => {
     vi.stubEnv('NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB', 'true');
     expect(enabledCatalogSources(getFlags())).toEqual(['forkchop', 'themealdb']);
     reseed(ready);
-    expect(q.getAllRecipes()).toHaveLength(64);
-    expect(q.getRecipeBySlug(ready[0].slug)?.title).toBe('Garlic Soy Chicken with Rice');
+    expect(q.getAllRecipes()).toHaveLength(63);
+    expect(q.getRecipeBySlug(ready[0].slug)?.title).toBe('Garides Saganaki');
   });
 
   it('carries provenance, nullable meta and the original measures', () => {
@@ -125,9 +126,9 @@ describe('flag on: imported recipes join the same ranking', () => {
     expect(recipe).toMatchObject({
       sourceId: 'themealdb',
       attribution: 'Recipe from TheMealDB',
-      attributionUrl: 'https://www.themealdb.com/meal/99001',
-      imageUrl: 'https://www.themealdb.com/images/media/meals/fixture99001.jpg',
-      videoUrl: 'https://www.youtube.com/watch?v=fixture99001',
+      attributionUrl: 'https://www.themealdb.com/meal/52764',
+      imageUrl: expect.stringMatching(/^https:\/\/www\.themealdb\.com\/images\/media\/meals\//),
+      videoUrl: expect.stringMatching(/^https:\/\/www\.youtube\.com\//),
       licence: 'themealdb-api',
       servings: null,
       prepMinutes: null,
@@ -135,7 +136,7 @@ describe('flag on: imported recipes join the same ranking', () => {
       totalMinutes: null,
       difficulty: null,
     });
-    expect(recipe.ingredients.find((i) => i.id === 'rice')).toMatchObject({ quantity: 1.5, unit: 'cup', display: '1 ½ cups' });
+    expect(recipe.ingredients.find((i) => i.id === 'garlic')).toMatchObject({ quantity: 0.5, unit: 'tsp', display: '1/2 teaspoon' });
   });
 
   it('never returns a needs_review row, even one inserted behind the seeder’s back', () => {
@@ -150,22 +151,32 @@ describe('flag on: imported recipes join the same ranking', () => {
     expect(q.getAllRecipes(['forkchop', 'themealdb']).map((r) => r.slug)).not.toContain('x');
   });
 
-  it('ranks with the seed corpus: chicken, rice, onion, garlic, soy sauce', () => {
+  it('ranks with the seed corpus: a fixture recipe comes back Ready', () => {
     reseed(ready);
     const lx = buildLexicon(q.getAllIngredients(), q.getAliasMap());
-    const pantry = resolvePantry(['chicken', 'rice', 'onion', 'garlic', 'soy sauce'], lx).map((r) => r.ingredientId!);
+    const pantry = resolvePantry(['prawns', 'onion', 'parsley', 'white wine', 'chopped tomatoes', 'garlic', 'feta'], lx).map((r) => r.ingredientId!);
     const matches = matchRecipes(q.getAllRecipes(['forkchop', 'themealdb']), pantry);
     const ours = matches.find((m) => m.recipe.slug === ready[0].slug)!;
     expect(ours.status).toBe('ready');
-    // The spring onions are "To serve", so optional; salt is an assumed staple.
-    expect(ours.optionalMissing.map((i) => i.id)).toEqual(['spring-onion']);
-    expect(ours.assumedStaples.map((i) => i.id)).toEqual(['salt']);
+    expect(ours.assumedStaples.map((i) => i.id)).toEqual(['olive-oil']);
+  });
+
+  it('acceptance: chicken, rice, onion, garlic, soy sauce finds imported recipes, with photos', () => {
+    reseed(s.importedRecipesToSeed()); // the full committed catalogue
+    const lx = buildLexicon(q.getAllIngredients(), q.getAliasMap());
+    const pantry = resolvePantry(['chicken', 'rice', 'onion', 'garlic', 'soy sauce'], lx).map((r) => r.ingredientId!);
+    const matches = matchRecipes(q.getAllRecipes(['forkchop', 'themealdb']), pantry);
+    const imported = matches.filter((m) => m.recipe.sourceId === 'themealdb' && (m.status === 'ready' || m.status === 'almost'));
+    expect(imported.length).toBeGreaterThan(0);
+    expect(imported.every((m) => m.recipe.imageUrl)).toBe(true);
+    // Missing ingredients are real taxonomy ingredients, so they can go in the basket.
+    for (const m of imported) for (const i of m.missing) expect(lx.byId.has(i.id)).toBe(true);
   });
 
   it('excludes unknown-time recipes from a time limit, and sorts them after known times', () => {
     reseed(ready);
     const lx = buildLexicon(q.getAllIngredients(), q.getAliasMap());
-    const pantry = resolvePantry(['chicken', 'rice', 'garlic', 'soy sauce'], lx).map((r) => r.ingredientId!);
+    const pantry = resolvePantry(['flour', 'milk', 'sugar', 'eggs', 'yeast'], lx).map((r) => r.ingredientId!);
     const all = q.getAllRecipes(['forkchop', 'themealdb']);
     const timed = matchRecipes(all, pantry, { maxTotalMinutes: 600 });
     expect(timed.some((m) => m.recipe.sourceId === 'themealdb')).toBe(false);

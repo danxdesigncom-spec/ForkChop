@@ -20,8 +20,20 @@
  * precisely because a false negative costs a reaction. When the honest answer
  * is a new taxonomy entry, propose one instead.
  *
- * Empty on purpose until the first real report exists: guessing these from
- * memory, before seeing TheMealDB's actual ingredient list, is exactly the
- * "inventing them in bulk" the brief rules out.
+ * The first entries were added after the first real import (2026-11-13). They
+ * are pure naming gaps: each is something the taxonomy already has, spelt
+ * differently, with no judgement about whether two products are
+ * interchangeable. Anything that needs that judgement ("cumin seeds" for
+ * ground cumin? self-raising for plain flour?) is left for David in the
+ * report's "decisions needed" lists.
  */
-export const THEMEALDB_OVERRIDES: Readonly<Record<string, string | null>> = {};
+export const THEMEALDB_OVERRIDES: Readonly<Record<string, string | null>> = {
+  // One word in the taxonomy, two in TheMealDB.
+  'corn flour': 'cornflour',
+  'egg plant': 'aubergine',
+  'egg plants': 'aubergine',
+  // "minced beef" is a taxonomy alias; the resolver doesn't drop "lean".
+  'lean minced beef': 'beef-mince',
+  // A misspelling of an entry the taxonomy has.
+  'ground cardomom': 'cardamom',
+};

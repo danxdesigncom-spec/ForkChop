@@ -42,6 +42,8 @@ export interface ImportedIngredientLine extends ParsedMeasure {
   method: ResolutionMethod | 'override' | null;
   /** Ambiguous lines: the ids it could be. */
   candidates: string[];
+  /** Why a resolvable line was held back: 'tie', 'typo match', 'left over: …', 'would lose allergen: …'. */
+  reason: string | null;
 }
 
 export interface ImportedRecipe {

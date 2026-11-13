@@ -18,7 +18,7 @@ import { RecipeDetail } from '@/components/RecipeDetail';
 
 const lexicon = seedLexicon();
 const imported = importCatalog(raw as unknown as TheMealDbRaw, { lexicon, seeds: [] }).catalog.recipes;
-const source = imported.find((r) => r.sourceId === '99001')!;
+const source = imported.find((r) => r.sourceId === '52764')!;
 
 const recipe: Recipe = {
   id: source.id,
@@ -26,7 +26,7 @@ const recipe: Recipe = {
   title: source.title,
   description: source.description,
   cuisine: source.cuisine,
-  region: 'asian',
+  region: 'mediterranean',
   mealTypes: source.mealTypes,
   diets: [],
   servings: null,
@@ -67,7 +67,7 @@ const seedRecipe: Recipe = {
   videoUrl: undefined,
 };
 
-const pantry = new Set(['chicken-breast', 'rice']);
+const pantry = new Set(['prawns', 'onion']);
 const noop = () => {};
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
@@ -92,29 +92,29 @@ describe('recipes with no time or servings', () => {
   it('v1 card shows neither "0 min" nor "Serves", just the cuisine', () => {
     const t = text(card(recipe));
     expect(t).not.toMatch(/\bmin\b|Serves|null/);
-    expect(t).toContain('Chinese');
-    expect(card(recipe)).toContain('fixture99001.jpg/small'); // thumbnail rendition on the 44px card
+    expect(t).toContain('Greek');
+    expect(card(recipe)).toMatch(/meals\/[^"]+\.jpg\/small"/); // thumbnail rendition on the 44px card
   });
 
   it('v2 card drops the time and servings items', () => {
     const t = text(cardV2(recipe));
     expect(t).not.toMatch(/\bmin\b|Serves|null/);
-    expect(t).toContain('Chinese');
+    expect(t).toContain('Greek');
   });
 
   it('detail page shows no broken meta, and the source measures', () => {
     const t = text(detail(recipe));
     expect(t).not.toMatch(/\bprep\b|\bcook\b ·|Serves|null/);
-    expect(t).toContain('Rice — 1 ½ cups');
+    expect(t).toContain('Garlic — 1/2 teaspoon');
   });
 });
 
 describe('attribution on the detail page', () => {
   it('credits TheMealDB and links the video', () => {
     const html = detail(recipe);
-    expect(html).toContain('href="https://www.themealdb.com/meal/99001"');
+    expect(html).toContain('href="https://www.themealdb.com/meal/52764"');
     expect(text(html)).toContain('Recipe from TheMealDB');
-    expect(html).toContain('href="https://www.youtube.com/watch?v=fixture99001"');
+    expect(html).toContain(`href="${recipe.videoUrl}"`);
     expect(text(html)).toContain('Watch video');
     expect(html).toContain('rel="noopener noreferrer"');
   });

@@ -9,10 +9,10 @@
  * v2 cards use `next/image`, which resizes on the server, so they keep the
  * original URL; so does the recipe detail page.
  *
- * Unverified from the cloud sandbox (themealdb.com is outside its egress
- * allowlist): current docs list `/small`, `/medium` and `/large`; older docs
- * used `/preview`. Check with `curl -I <thumb>/small` on the Mac and change the
- * constant if needed — nothing else depends on it.
+ * Verified 2026-11-13: TheMealDB serves `/small` (150×150, ~9 KB), `/medium`
+ * (350×350) and `/large` (500×500), against ~130 KB for the 700×700
+ * original. `/preview` is an older alias of `/small`. 150 px covers the 44 px
+ * card at 3× density.
  */
 export const THEMEALDB_THUMB_SUFFIX = '/small';
 

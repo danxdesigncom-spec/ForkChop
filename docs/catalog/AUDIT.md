@@ -183,16 +183,25 @@ variable.
 
 ## Risks and unknowns
 
-- **The ≥ 85 % `ready` target is unlikely to be met with today's taxonomy.** The taxonomy has 143 ingredients
-  are mapped, while TheMealDB's ingredient list runs to several hundred (shallots, leeks, fennel,
-  pork shoulder, puff pastry, anchovies, Gruyère, mussels…). One unmapped required line sends the
-  whole recipe to `needs_review`. The real figure will only be known once the fetch runs on the
-  Mac. The report ranks unmapped ingredients by how many recipes each would unlock, so the
-  taxonomy can be grown in order of payoff.
-- **Thumbnail variant:** this sandbox can't reach themealdb.com (proxy `403`), so the image-size
-  suffix couldn't be checked against `api.php`. The code uses `/small` as a single constant,
-  `THEMEALDB_THUMB_SUFFIX`. Verify it on the Mac with one `curl -I` (`/preview` is the older
-  documented form).
-- **Baseline:** `npm test` (22 files, 297 tests) and `npm run lint` pass on `main`.
-  `npx tsc --noEmit` reports errors only in `docs/redesign/assets/a11y.spec.ts` (Playwright isn't
-  installed). That was already the case and is unrelated.
+- **The ≥ 85 % `ready` target is out of reach with today's taxonomy.** The first real import
+  (2026-11-13: 793 fetched, 6 duplicates, 787 imported) left **179 ready (22.7 %)**. The report's
+  "Fastest path" table shows the shape of the problem: the 30 highest-value additions only reach
+  about 38 %, because most review recipes are blocked by two or more rare ingredients. 85 % would
+  take hundreds of new taxonomy entries. See `data/sources/themealdb/import-report.md`.
+- **The resolver's partial matching is too loose for unattended import.** On real data it mapped
+  "Water Chestnut" to Water, "Padron peppers" to Black pepper (both staples, so a missing
+  ingredient was hidden), "Ground Nut Oil" to Vegetable oil (losing the peanut allergen), and
+  "Egg Rolls" to Egg. `src/lib/catalog/mapping-rules.ts` now accepts a partial match only when the
+  leftover words are harmless, and holds any mapping that would drop an allergen the name
+  implies. That took the ready count from 223 down to the honest 179. The pantry input still uses
+  the loose rules, which is fine there because the shopper sees and corrects each chip.
+- **Category "Vegetarian" is not reliable on its own.** Real recipes in that category contained
+  chicken stock, lard, bacon and fish sauce. Diet tags now also check each line's own name.
+- **Shared singulariser bug (not fixed here):** `singularizeWord` leaves "seeds", "beans",
+  "lentils" and "nuts" plural, so "coriander seeds" in a typed pantry resolves to fresh coriander.
+  The import works around it; fixing the shared function would change pantry resolution, so it
+  belongs in its own PR.
+- **Thumbnail variant:** verified. `/small` is 150×150 (about 9 KB, against about 130 KB for the
+  original).
+- **Verification:** after merging `main` (#41), `npm test` (29 files, 448 tests), `npm run lint` and
+  `npx tsc --noEmit` all pass, and CI (Vercel and a11y) is green.

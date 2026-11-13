@@ -15,7 +15,8 @@
  */
 import type { Importance, Ingredient } from '../types';
 import type { Lexicon } from '../matching/normalize';
-import { partialCandidates, resolveIngredient, suggestCorrection } from '../matching/normalize';
+import { ingredientTokens, partialMatch, resolveIngredient, suggestCorrection } from '../matching/normalize';
+import { leftoversAreHarmless, lostAllergens, nameSaysAnimalProduct, nameSaysMeatOrFish } from './mapping-rules';
 import { anglicise } from '../recipes/spoonacular/map';
 import type {
   ImportedCatalog,
@@ -176,6 +177,7 @@ export function parseMeasure(raw: string | null | undefined): ParsedMeasure {
     .replace(new RegExp(`([${FRACTION_CHARS}])`, 'g'), ' $1 ')
     .replace(/(\d),(\d)/g, '$1.$2') // "1,5" → 1.5
     .replace(new RegExp(`(\\d)\\s*(?:-|–|—)\\s*(?=\\d|[${FRACTION_CHARS}])`, 'g'), '$1 - ')
+    .replace(/([a-zA-Z])\/(?=\d)/g, '$1 / ') // "175g/6oz": metric first, imperial left in the note
     .replace(/(\d)([a-zA-Z])/g, '$1 $2') // "400g" → "400 g"
     .replace(/\s+/g, ' ')
     .trim();
@@ -243,6 +245,22 @@ export interface IngredientMapping {
   ingredientId: string | null;
   method: ImportedIngredientLine['method'];
   candidates: string[];
+  /** Why an otherwise-resolved line was held back, for the report. */
+  reason: string | null;
+}
+
+/** "Pine nuts" → "pine nut", "Chillies" → "chilli", "Tomatoes" → "tomato". Every word, plainly. */
+export function plainSingular(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .map((w) =>
+      w.length <= 3 || /ss$/.test(w)
+        ? w
+        : w.replace(/ies$/, 'y').replace(/(oes|ches|shes|xes)$/, (m) => m.slice(0, -2)).replace(/s$/, ''),
+    )
+    .join(' ');
 }
 
 /** The key used for overrides and in the report: lower-case, single-spaced. */
@@ -253,11 +271,13 @@ export function ingredientKey(name: string): string {
 /**
  * Lands one source ingredient name on the taxonomy.
  *
- * exact / singular / stripped resolutions are trusted. A partial match is
- * trusted only when exactly one taxonomy entry is the most specific fit; a tie
- * ("Peanut Oil": `peanut` or `oil`?) is `ambiguous`. A fuzzy (typo) match is
- * always `ambiguous`: right for a pantry chip the shopper can correct, wrong
- * as a silent decision about what a recipe needs.
+ * exact / singular / stripped resolutions are trusted, as long as they keep
+ * every allergen the name implies. A partial match is trusted only when
+ * exactly one entry is the most specific fit and every word left over is a
+ * harmless modifier (see mapping-rules.ts): "Baby New Potatoes" is Potato, but
+ * "Water Chestnut" is not Water. A fuzzy (typo) match is always `ambiguous`:
+ * right for a pantry chip the shopper can correct, wrong as a silent decision
+ * about what a recipe needs.
  */
 export function mapIngredientName(
   name: string,
@@ -267,30 +287,69 @@ export function mapIngredientName(
   const key = ingredientKey(name);
   if (Object.prototype.hasOwnProperty.call(overrides, key)) {
     const id = overrides[key];
-    if (id && lexicon.byId.has(id)) return { outcome: 'mapped', ingredientId: id, method: 'override', candidates: [] };
-    return { outcome: 'unmapped', ingredientId: null, method: 'override', candidates: [] };
+    if (id && lexicon.byId.has(id)) return { outcome: 'mapped', ingredientId: id, method: 'override', candidates: [], reason: null };
+    return { outcome: 'unmapped', ingredientId: null, method: 'override', candidates: [], reason: null };
+  }
+
+  // The shared singulariser misses some plurals ("seeds", "beans", "nuts"),
+  // so "Pine nuts" reaches the resolver as a partial match even though "pine
+  // nut" is a taxonomy alias. A plain English plural strip that lands on an
+  // exact name is the same ingredient by definition, so take it first.
+  const plain = plainSingular(name);
+  if (plain !== name.toLowerCase().trim()) {
+    const exact = resolveIngredient(plain, lexicon);
+    if (exact.ingredientId && exact.method === 'exact') {
+      const lost = lostAllergens(name, lexicon.byId.get(exact.ingredientId)!);
+      if (lost.length === 0) return { outcome: 'mapped', ingredientId: exact.ingredientId, method: 'singular', candidates: [], reason: null };
+    }
   }
 
   const resolved = resolveIngredient(name, lexicon);
   if (!resolved.ingredientId || !resolved.method) {
-    return { outcome: 'unmapped', ingredientId: null, method: null, candidates: [] };
+    return { outcome: 'unmapped', ingredientId: null, method: null, candidates: [], reason: null };
   }
+
+  const hold = (id: string, method: IngredientMapping['method'], reason: string): IngredientMapping => ({
+    outcome: 'ambiguous', ingredientId: null, method, candidates: [id], reason,
+  });
+  const accept = (id: string, method: IngredientMapping['method']): IngredientMapping => {
+    const lost = lostAllergens(name, lexicon.byId.get(id)!);
+    if (lost.length > 0) return hold(id, method, `would lose allergen: ${lost.join(', ')}`);
+    return { outcome: 'mapped', ingredientId: id, method, candidates: [], reason: null };
+  };
 
   switch (resolved.method) {
     case 'exact':
     case 'alias':
     case 'singular':
-    case 'stripped':
-      return { outcome: 'mapped', ingredientId: resolved.ingredientId, method: resolved.method, candidates: [] };
-    case 'partial': {
-      const candidates = partialCandidates(name, lexicon);
-      if (candidates.length <= 1) {
-        return { outcome: 'mapped', ingredientId: resolved.ingredientId, method: 'partial', candidates: [] };
+      return accept(resolved.ingredientId, resolved.method);
+    case 'stripped': {
+      const id = resolved.ingredientId;
+      const tokens = ingredientTokens(name);
+      // "Lamb Fat", "Duck fat": the fat, not the meat. The resolver strips
+      // "fat" as a prep word because of "low fat yoghurt".
+      if (tokens[tokens.length - 1] === 'fat') return hold(id, 'stripped', 'left over: fat');
+      // A wrong staple hides a missing ingredient (staples count as owned),
+      // so stripping is only trusted onto one when what went is harmless:
+      // "Warm Water" is Water, "Roasted pepper" is not Black pepper.
+      if (lexicon.byId.get(id)?.isStaple) {
+        const own = new Set(
+          [lexicon.byId.get(id)!.name, ...[...lexicon.phrases].filter(([, v]) => v === id).map(([p]) => p)].flatMap(ingredientTokens),
+        );
+        const gone = tokens.filter((t) => !own.has(t));
+        if (!leftoversAreHarmless(id, gone)) return hold(id, 'stripped', `left over: ${gone.join(' ')}`);
       }
-      return { outcome: 'ambiguous', ingredientId: null, method: 'partial', candidates };
+      return accept(id, 'stripped');
+    }
+    case 'partial': {
+      const { ids, extras } = partialMatch(name, lexicon);
+      if (ids.length > 1) return { outcome: 'ambiguous', ingredientId: null, method: 'partial', candidates: ids, reason: 'tie' };
+      const id = ids[0] ?? resolved.ingredientId;
+      if (!leftoversAreHarmless(id, extras)) return hold(id, 'partial', `left over: ${extras.join(' ')}`);
+      return accept(id, 'partial');
     }
     case 'fuzzy':
-      return { outcome: 'ambiguous', ingredientId: null, method: 'fuzzy', candidates: [resolved.ingredientId] };
+      return hold(resolved.ingredientId, 'fuzzy', 'typo match');
   }
 }
 
@@ -402,24 +461,39 @@ export function isAnimalProduct(ingredient: Ingredient): boolean {
  * vegetarian tag. It's returned as a conflict instead, and the recipe goes to
  * review.
  */
-export function dietTags(
-  category: string | null | undefined,
-  ingredients: Ingredient[],
-): { tags: string[]; conflicts: string[] } {
+export interface DietLine {
+  /** The line's own name, as the recipe gives it. */
+  name: string;
+  /** What it mapped to, if anything. */
+  ingredient?: Ingredient;
+}
+
+export function dietTags(category: string | null | undefined, lines: DietLine[]): { tags: string[]; conflicts: string[] } {
   const cat = (category ?? '').trim().toLowerCase();
   if (cat !== 'vegetarian' && cat !== 'vegan') return { tags: [], conflicts: [] };
 
-  const meat = ingredients.filter(isMeatOrFish);
-  if (meat.length > 0) {
-    return { tags: [], conflicts: meat.map((i) => `category is ${category} but contains ${i.name}`) };
-  }
+  // Both what a line mapped to and what its own name says: "Chicken Stock"
+  // maps to the neutral Stock, but it is still chicken. One entry per line.
+  const conflicts = (test: (l: DietLine) => boolean, label: string) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const line of lines) {
+      if (!test(line)) continue;
+      const key = line.name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(`category is ${label} but contains ${line.name}`);
+    }
+    return out;
+  };
+
+  const meat = conflicts((l) => (l.ingredient ? isMeatOrFish(l.ingredient) : false) || nameSaysMeatOrFish(l.name), category!.trim());
+  if (meat.length > 0) return { tags: [], conflicts: meat };
   if (cat === 'vegetarian') return { tags: ['vegetarian'], conflicts: [] };
 
-  const animal = ingredients.filter(isAnimalProduct);
-  if (animal.length > 0) {
-    // Still honestly vegetarian; just not vegan.
-    return { tags: ['vegetarian'], conflicts: animal.map((i) => `category is Vegan but contains ${i.name}`) };
-  }
+  const animal = conflicts((l) => (l.ingredient ? isAnimalProduct(l.ingredient) : false) || nameSaysAnimalProduct(l.name), 'Vegan');
+  // Still honestly vegetarian; just not vegan.
+  if (animal.length > 0) return { tags: ['vegetarian'], conflicts: animal };
   return { tags: ['vegan', 'vegetarian'], conflicts: [] };
 }
 
@@ -448,6 +522,28 @@ export function normaliseTitle(title: string): string {
   return slugify(title).replace(/-/g, ' ');
 }
 
+/**
+ * TheMealDB's strArea mixes adjectives ("Italian") with country names
+ * ("France", "United States"). Cards read "Italian", and the region filter
+ * keys off the adjective, so countries are turned into adjectives.
+ */
+const AREA_ADJECTIVES: Record<string, string> = {
+  'united states': 'American', usa: 'American', america: 'American', france: 'French', norway: 'Norwegian',
+  india: 'Indian', netherlands: 'Dutch', argentina: 'Argentinian', venezuela: 'Venezuelan', venezulan: 'Venezuelan',
+  slovakia: 'Slovak', italy: 'Italian', spain: 'Spanish', portugal: 'Portuguese', greece: 'Greek', japan: 'Japanese',
+  china: 'Chinese', mexico: 'Mexican', thailand: 'Thai', vietnam: 'Vietnamese', turkey: 'Turkish', morocco: 'Moroccan',
+  egypt: 'Egyptian', kenya: 'Kenyan', australia: 'Australian', canada: 'Canadian', jamaica: 'Jamaican',
+  'united kingdom': 'British', uk: 'British', ireland: 'Irish', poland: 'Polish', russia: 'Russian', ukraine: 'Ukrainian',
+  croatia: 'Croatian', philippines: 'Filipino', malaysia: 'Malaysian', tunisia: 'Tunisian', algeria: 'Algerian',
+  syria: 'Syrian', 'saudi arabia': 'Saudi Arabian', uruguay: 'Uruguayan',
+};
+
+export function cuisineForArea(area: string | null | undefined): string {
+  const a = (area ?? '').trim();
+  if (!a || a.toLowerCase() === 'unknown') return '';
+  return AREA_ADJECTIVES[a.toLowerCase()] ?? a;
+}
+
 const httpUrl = (value: string | null | undefined): string | null => {
   const v = value?.trim();
   return v && /^https?:\/\//i.test(v) ? v : null;
@@ -466,7 +562,6 @@ export function transformMeal(meal: TheMealDbMeal, ctx: TransformContext): Impor
   const sourceId = String(meal.idMeal).trim();
   const title = anglicise(meal.strMeal.replace(/\s+/g, ' ').trim());
   const category = meal.strCategory?.trim() || null;
-  const area = meal.strArea?.trim() || '';
 
   const ingredients: ImportedIngredientLine[] = zipIngredients(meal).map((line) => {
     const measure = parseMeasure(line.measure);
@@ -482,17 +577,17 @@ export function transformMeal(meal: TheMealDbMeal, ctx: TransformContext): Impor
       ingredientId: mapping.ingredientId,
       method: mapping.method,
       candidates: mapping.candidates,
+      reason: mapping.reason,
     };
   });
 
   const instructions = splitInstructions(meal.strInstructions);
 
-  const mapped = ingredients.flatMap((l) => {
-    const ing = l.ingredientId ? ctx.lexicon.byId.get(l.ingredientId) : undefined;
-    return ing ? [ing] : [];
-  });
   const sourceTags = splitSourceTags(meal.strTags);
-  const diet = dietTags(category, mapped);
+  const diet = dietTags(
+    category,
+    ingredients.map((l) => ({ name: l.name, ingredient: l.ingredientId ? ctx.lexicon.byId.get(l.ingredientId) : undefined })),
+  );
 
   const reviewReasons: string[] = [];
   if (ingredients.length === 0) reviewReasons.push('no ingredients');
@@ -501,7 +596,7 @@ export function transformMeal(meal: TheMealDbMeal, ctx: TransformContext): Impor
     if (line.outcome === 'mapped' || line.importance === 'optional') continue;
     reviewReasons.push(
       line.outcome === 'ambiguous'
-        ? `ambiguous: ${line.name} (${line.candidates.join(' | ')})`
+        ? `ambiguous: ${line.name} (${line.candidates.join(' | ')}${line.reason && line.reason !== 'tie' ? `; ${line.reason}` : ''})`
         : `unmapped: ${line.name}`,
     );
   }
@@ -514,7 +609,7 @@ export function transformMeal(meal: TheMealDbMeal, ctx: TransformContext): Impor
     slug: `${slugify(title) || 'recipe'}-themealdb-${sourceId}`,
     title,
     description: '',
-    cuisine: area.toLowerCase() === 'unknown' ? '' : area,
+    cuisine: cuisineForArea(meal.strArea),
     mealTypes: mealTypesForCategory(category),
     servings: null,
     prepMinutes: null,
@@ -601,7 +696,22 @@ export interface Duplicate {
   sourceId: string;
   title: string;
   seedSlug: string;
-  reason: 'title' | 'ingredients';
+  reason: 'title' | 'similar title' | 'ingredients';
+}
+
+/** Levenshtein distance, for near-identical titles ("Shakshouka" / "Shakshuka"). */
+function editDistance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const up = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = up;
+    }
+  }
+  return prev[b.length];
 }
 
 /** Non-staple, non-optional ingredient ids: what actually makes the dish what it is. */
@@ -616,8 +726,8 @@ function signatureIds(ids: Iterable<{ id: string; importance: Importance }>, lex
 }
 
 /**
- * A TheMealDB recipe duplicates a seed recipe when the normalised titles match,
- * or when the dish needs exactly the same ingredients (at least three of them,
+ * A TheMealDB recipe duplicates a seed recipe when the normalised titles match
+ * (or are one letter apart, a spelling variant), or when the dish needs exactly the same ingredients (at least three of them,
  * so "eggs, butter" doesn't collide with every omelette). The seed recipe
  * always wins: its importance weights rank better than anything inferred.
  */
@@ -638,6 +748,15 @@ export function findSeedDuplicate(
   for (const seed of seeds) {
     if (normaliseTitle(seed.title) === title) {
       return { sourceId: recipe.sourceId, title: recipe.title, seedSlug: seed.slug, reason: 'title' };
+    }
+  }
+  // One letter apart on a title long enough for that to be a spelling, not a
+  // different dish. Two or more letters already merges real variants
+  // ("Thai prawn curry" vs "Thai Green Curry"), so the line is drawn at one.
+  for (const seed of seeds) {
+    const seedTitle = normaliseTitle(seed.title);
+    if (Math.min(seedTitle.length, title.length) >= 8 && editDistance(seedTitle, title) === 1) {
+      return { sourceId: recipe.sourceId, title: recipe.title, seedSlug: seed.slug, reason: 'similar title' };
     }
   }
   if (comparable && ids.split(',').length >= 3) {
@@ -707,6 +826,7 @@ interface Gap {
   recipes: Set<string>;
   soleBlocker: Set<string>;
   candidates: Set<string>;
+  reasons: Set<string>;
 }
 
 const pct = (n: number, d: number) => (d === 0 ? '0.0' : ((n / d) * 100).toFixed(1));
@@ -747,11 +867,12 @@ export function buildReport(result: ImportResult, lexicon: Lexicon): string {
       if (line.method === 'override') continue;
       const table = line.outcome === 'ambiguous' ? ambiguous : unmapped;
       const gap = table.get(key) ?? {
-        key, name: line.name, lines: 0, recipes: new Set(), soleBlocker: new Set(), candidates: new Set(),
+        key, name: line.name, lines: 0, recipes: new Set(), soleBlocker: new Set(), candidates: new Set(), reasons: new Set(),
       };
       gap.lines += 1;
       gap.recipes.add(recipe.sourceId);
       line.candidates.forEach((c) => gap.candidates.add(c));
+      if (line.reason) gap.reasons.add(line.reason);
       table.set(key, gap);
       if (line.importance !== 'optional') blockingKeys.add(key);
     }
@@ -770,7 +891,17 @@ export function buildReport(result: ImportResult, lexicon: Lexicon): string {
   const unmappedRows = [...unmapped.values()].sort(rank);
   const ambiguousRows = [...ambiguous.values()].sort(rank);
 
-  const suggestionFor = (gap: Gap): string | null => suggestCorrection(gap.name, lexicon)?.id ?? null;
+  // Only suggest an existing entry that shares a word with the ingredient.
+  // suggestCorrection's last resort is any substring hit, which offered
+  // "Sweet potato" for Ham and "Olives" for Chives on the first real import.
+  const wordsOf = (t: string) => new Set(ingredientTokens(t));
+  const suggestionFor = (gap: Gap): string | null => {
+    const id = suggestCorrection(gap.name, lexicon)?.id;
+    if (!id) return null;
+    const mine = wordsOf(gap.name);
+    const theirs = [lexicon.byId.get(id)?.name ?? '', ...[...lexicon.phrases].filter(([, v]) => v === id).map(([p]) => p)];
+    return theirs.some((t) => [...wordsOf(t)].some((w) => mine.has(w))) ? id : null;
+  };
 
   const out: string[] = [];
   out.push('# TheMealDB import report');
@@ -796,6 +927,62 @@ export function buildReport(result: ImportResult, lexicon: Lexicon): string {
   out.push('Target from the brief: ≥ 85 % ready.');
   out.push('');
 
+  // Greedy growth path: at each step, the one ingredient that would turn the
+  // most recipes `ready` given the ones already chosen. Most review recipes
+  // are blocked by two or three ingredients, so the per-ingredient "unlocks"
+  // count below understates what a batch of taxonomy work buys.
+  const blocking = recipes
+    .filter((r) => r.status === 'needs_review' && r.reviewReasons.every((x) => x.startsWith('unmapped: ') || x.startsWith('ambiguous: ')))
+    .map((r) => new Set(r.ingredients.filter((l) => l.outcome !== 'mapped' && l.importance !== 'optional').map((l) => ingredientKey(l.name))));
+  const display = new Map<string, string>();
+  for (const g of [...unmapped.values(), ...ambiguous.values()]) display.set(g.key, g.name);
+  const chosen = new Set<string>();
+  const path: { name: string; ready: number }[] = [];
+  for (let step = 0; step < 30; step++) {
+    let best = '';
+    let bestFull = -1;
+    let bestShare = -1;
+    const keys = [...new Set(blocking.flatMap((b) => [...b]))].filter((k) => !chosen.has(k)).sort();
+    for (const key of keys) {
+      let full = 0;
+      let share = 0;
+      for (const b of blocking) {
+        const left = [...b].filter((k) => !chosen.has(k));
+        if (!left.includes(key)) continue;
+        share += 1 / left.length;
+        if (left.length === 1) full += 1;
+      }
+      if (full > bestFull || (full === bestFull && share > bestShare)) {
+        best = key;
+        bestFull = full;
+        bestShare = share;
+      }
+    }
+    if (!best) break;
+    chosen.add(best);
+    path.push({ name: display.get(best) ?? best, ready: ready.length + blocking.filter((b) => [...b].every((k) => chosen.has(k))).length });
+  }
+  const blockerCounts = new Map<number, number>();
+  for (const b of blocking) blockerCounts.set(b.size, (blockerCounts.get(b.size) ?? 0) + 1);
+
+  out.push('## Fastest path to more ready recipes');
+  out.push('');
+  out.push('Each step adds the one ingredient (an alias, a new taxonomy entry or an override) that turns the');
+  out.push('most recipes `ready`, given the steps above it. Use it to batch taxonomy work by payoff.');
+  out.push('');
+  out.push(
+    `Recipes in review because of ingredients, by how many are blocking each: ${[...blockerCounts.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([n, c]) => `${n} → ${c}`)
+      .join(', ')}.`,
+  );
+  out.push('');
+  out.push('| Step | Add | Ready after | Ready rate |');
+  out.push('|---:|---|---:|---:|');
+  path.forEach((p, i) => out.push(`| ${i + 1} | ${cell(p.name)} | ${p.ready} | ${pct(p.ready, recipes.length)} % |`));
+  if (path.length === 0) out.push('| | Nothing to add | | |');
+  out.push('');
+
   out.push('## Unmapped ingredients — decisions needed');
   out.push('');
   out.push('Ranked by how many recipes would become `ready` if this were the only fix ("unlocks").');
@@ -818,16 +1005,17 @@ export function buildReport(result: ImportResult, lexicon: Lexicon): string {
 
   out.push('## Ambiguous ingredients');
   out.push('');
-  out.push('The resolver found more than one equally good fit, or only a typo-distance match. Pick one in the');
-  out.push('overrides table.');
+  out.push('Resolvable, but not safely: a tie between entries, a typo-distance match, words left over that');
+  out.push('change what it is ("Water Chestnut" is not Water), or a mapping that would drop an allergen the');
+  out.push('name implies. Decide in the overrides table.');
   out.push('');
-  out.push('| Ingredient | Unlocks | Recipes | Candidates |');
-  out.push('|---|---:|---:|---|');
+  out.push('| Ingredient | Unlocks | Recipes | Candidates | Why held back |');
+  out.push('|---|---:|---:|---|---|');
   for (const gap of ambiguousRows) {
     const candidates = [...gap.candidates].sort().map((c) => `${cell(nameOf(c))} (\`${c}\`)`).join(', ');
-    out.push(`| ${cell(gap.name)} | ${gap.soleBlocker.size} | ${gap.recipes.size} | ${candidates} |`);
+    out.push(`| ${cell(gap.name)} | ${gap.soleBlocker.size} | ${gap.recipes.size} | ${candidates} | ${cell([...gap.reasons].sort().join('; '))} |`);
   }
-  if (ambiguousRows.length === 0) out.push('| None | | | |');
+  if (ambiguousRows.length === 0) out.push('| None | | | | |');
   out.push('');
 
   out.push('## Proposed taxonomy changes (for David to approve)');
@@ -855,9 +1043,8 @@ export function buildReport(result: ImportResult, lexicon: Lexicon): string {
 
   out.push('## Partial matches to spot-check');
   out.push('');
-  out.push('Mapped because exactly one taxonomy entry fits best, but by containment rather than an exact');
-  out.push('name. Usually right ("Free-range Egg Yolks" → Egg); occasionally not ("Self-raising Flour" →');
-  out.push('Plain flour). Override any that are wrong.');
+  out.push('Mapped by containment rather than an exact name, with only harmless words left over (sizes,');
+  out.push('colours, varieties: see `src/lib/catalog/mapping-rules.ts`). Override any that are wrong.');
   out.push('');
   const partialRows = [...partials.entries()].sort((a, b) => b[1].lines - a[1].lines || a[0].localeCompare(b[0]));
   if (partialRows.length === 0) out.push('- None');
