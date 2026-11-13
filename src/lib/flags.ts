@@ -45,6 +45,8 @@ export interface FeatureFlags {
   admin: boolean;
   /** v2 brand + layout (Chef Pig, Garden & Radish). */
   redesign: boolean;
+  /** v2 ingredient bar, version B: input first + kitchen tray. */
+  ingredientBarB: boolean;
   /** Include TheMealDB recipes in the local catalog. */
   catalogThemealdb: boolean;
 }
@@ -59,8 +61,12 @@ export interface FeatureFlags {
  * gated on ADMIN_EMAILS (server-only) and SUPABASE_SERVICE_ROLE_KEY — with
  * neither set, no email is on the allowlist and no one can get in.
  *
- * `redesign` and `catalogThemealdb` are the exceptions: both are still soaking,
- * so they default `false` and are switched on in Vercel Preview only.
+ * `redesign` is the exception: it's still soaking, so it defaults `false` and
+ * is switched on in Vercel Preview only until the v2 rollout. `ingredientBarB`
+ * (docs/redesign/07-ingredient-bar-b.md) follows the same pattern, and only has
+ * an effect when `redesign` is also on.
+ * `catalogThemealdb` (docs/catalog/) is off by default for the same reason: the
+ * import soaks in Preview first.
  */
 const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
   kroger: true,
@@ -73,6 +79,7 @@ const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
   pagination: true,
   admin: true,
   redesign: false,
+  ingredientBarB: false,
   catalogThemealdb: false,
 };
 
@@ -91,6 +98,7 @@ const ENV_VARS: Record<keyof FeatureFlags, string> = {
   pagination: 'NEXT_PUBLIC_FEATURE_PAGINATION',
   admin: 'NEXT_PUBLIC_FEATURE_ADMIN',
   redesign: 'NEXT_PUBLIC_FEATURE_REDESIGN',
+  ingredientBarB: 'NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B',
   catalogThemealdb: 'NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB',
 };
 

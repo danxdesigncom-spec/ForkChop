@@ -13,6 +13,41 @@ interface Props {
   onClearAll: () => void;
 }
 
+/**
+ * The "Your kitchen" body: count line, every chip, Clear all and Done. Shared
+ * by the desktop popover below and, in v2B, the mobile tray's Edit sheet.
+ */
+export function YourKitchenBody({
+  have,
+  onRemove,
+  onClearAll,
+  onDone,
+}: {
+  have: string[];
+  onRemove: (name: string) => void;
+  onClearAll: () => void;
+  onDone: () => void;
+}) {
+  return (
+    <>
+      <p className="text-[13px] text-muted">
+        {have.length} {have.length === 1 ? 'ingredient' : 'ingredients'} · remove anything that&apos;s run out
+      </p>
+      <div className="mt-3 flex max-h-64 flex-wrap gap-2 overflow-y-auto">
+        {have.map((name) => (
+          <HaveChip key={name} name={name} onRemove={onRemove} />
+        ))}
+      </div>
+      <div className="mt-4 flex justify-between gap-2">
+        <Button variant="ghost" onClick={onClearAll}>
+          Clear all
+        </Button>
+        <Button onClick={onDone}>Done</Button>
+      </div>
+    </>
+  );
+}
+
 /** Desktop: "+N more" opens every kitchen chip, with Clear all and Done. */
 export function YourKitchenPopover({ have, hiddenCount, onRemove, onClearAll }: Props) {
   const [open, setOpen] = useState(false);
@@ -48,34 +83,19 @@ export function YourKitchenPopover({ have, hiddenCount, onRemove, onClearAll }: 
         <h2 id={headingId} className="font-display text-lg font-semibold text-foreground">
           Your kitchen
         </h2>
-        <p className="text-[13px] text-muted">
-          {have.length} {have.length === 1 ? 'ingredient' : 'ingredients'} · remove anything that&apos;s run out
-        </p>
-        <div className="mt-3 flex max-h-64 flex-wrap gap-2 overflow-y-auto">
-          {have.map((name) => (
-            <HaveChip key={name} name={name} onRemove={onRemove} />
-          ))}
-        </div>
-        <div className="mt-4 flex justify-between gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              onClearAll();
-              close();
-              trigger.current?.focus();
-            }}
-          >
-            Clear all
-          </Button>
-          <Button
-            onClick={() => {
-              close();
-              trigger.current?.focus();
-            }}
-          >
-            Done
-          </Button>
-        </div>
+        <YourKitchenBody
+          have={have}
+          onRemove={onRemove}
+          onClearAll={() => {
+            onClearAll();
+            close();
+            trigger.current?.focus();
+          }}
+          onDone={() => {
+            close();
+            trigger.current?.focus();
+          }}
+        />
       </div>
     </div>
   );
