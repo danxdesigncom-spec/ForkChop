@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { ProviderNotConfiguredError, getGroceryProvider } from '@/lib/grocery';
+import {
+  ProviderNotConfiguredError,
+  defaultGroceryProviderId,
+  disabledGroceryProviderIds,
+  getGroceryProvider,
+} from '@/lib/grocery';
 import { getAllIngredients } from '@/lib/db/queries';
+import { getFlags } from '@/lib/flags';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +24,16 @@ const RequestSchema = z.object({
     .min(1)
     .max(100),
   provider: z.string().optional(),
+  /**
+   * The shopper's chosen store, for providers that price per-store. Bounded
+   * and character-restricted because it is interpolated into an upstream API
+   * path — Kroger ids look like "70400385" or "542FC807".
+   */
+  locationId: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9]{1,16}$/, 'Invalid store id.')
+    .optional(),
 });
 
 /**
@@ -60,8 +76,22 @@ export async function POST(request: Request) {
     neededFor: item.neededFor ?? [],
   }));
 
+  // Refuse flagged-off providers even if the client asks for one directly.
+  // The UI already hides them, but a naive script hitting /api/cart could
+  // still address a disabled partner otherwise.
+  const requested = parsed.data.provider ?? defaultGroceryProviderId();
+  const disabled = new Set(disabledGroceryProviderIds(getFlags()));
+  if (disabled.has(requested)) {
+    return NextResponse.json(
+      { error: `The ${requested} checkout is disabled on this deployment.` },
+      { status: 404 },
+    );
+  }
+
   try {
-    const provider = getGroceryProvider(parsed.data.provider);
+    const provider = getGroceryProvider(parsed.data.provider, {
+      locationId: parsed.data.locationId,
+    });
     const cart = await provider.createCart(lineItems);
     return NextResponse.json({ cart });
   } catch (error) {

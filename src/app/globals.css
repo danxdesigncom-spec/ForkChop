@@ -121,8 +121,28 @@
   --color-score-low: var(--score-low);
   --color-score-low-soft: var(--score-low-soft);
 
+  /*
+   * v2-only tokens (docs/redesign/02-foundations.md). They are defined in
+   * tokens-v2.css under html[data-brand="v2"]; with the redesign flag off the
+   * variables are unset and nothing uses these utilities yet.
+   */
+  --color-line-strong: var(--line-strong);
+  --color-on-brand: var(--on-brand);
+  --color-raised: var(--raised);
+  --color-selected: var(--selected);
+  --color-radish: var(--radish);
+  --color-radish-text: var(--radish-text);
+  --color-blush: var(--blush);
+  --color-saffron: var(--saffron);
+  --color-saffron-soft: var(--saffron-soft);
+  --color-saffron-text: var(--saffron-text);
+  --color-chip-have: var(--chip-have);
+  --color-chip-have-fg: var(--chip-have-fg);
+  --color-placeholder: var(--placeholder);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-fraunces);
 }
 
 body {
@@ -154,30 +174,6 @@ body::before {
   border-radius: 4px;
 }
 
-/*
- * Printing sends only the shopping list. Hiding everything else means the user
- * gets a clean sheet of paper rather than the whole app, and the same box is
- * what they would screenshot.
- */
-@media print {
-  body * {
-    visibility: hidden;
-  }
-  #forkchop-shopping-list,
-  #forkchop-shopping-list * {
-    visibility: visible;
-  }
-  #forkchop-shopping-list {
-    position: absolute;
-    inset: 0 auto auto 0;
-    width: 100%;
-    border: none;
-    padding: 0;
-    color: #000;
-    background: #fff;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -185,4 +181,44 @@ body::before {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/*
+ * Branded scrollbar for the filters sidebar. The default OS scrollbar is
+ * near-invisible on the pink theme, so people don't realise the panel
+ * scrolls. This one uses the same pink tokens as the rest of the app,
+ * stays visible even when idle, and gets stronger on hover.
+ *
+ * Firefox reads `scrollbar-color` / `scrollbar-width`; Chrome/Safari/Edge
+ * read the ::-webkit-scrollbar pseudo-elements. Both are declared so it
+ * looks the same everywhere.
+ */
+.brand-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--brand) var(--brand-soft);
+}
+
+.brand-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.brand-scrollbar::-webkit-scrollbar-track {
+  background: var(--brand-soft);
+  border-radius: 999px;
+}
+
+.brand-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--brand);
+  border: 2px solid var(--brand-soft);
+  border-radius: 999px;
+  min-height: 40px;
+}
+
+.brand-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-strong);
+}
+
+.brand-scrollbar::-webkit-scrollbar-thumb:active {
+  background: var(--brand-strong);
 }

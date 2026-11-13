@@ -27,12 +27,17 @@ export function FilterSection({
   return (
     <section className="border-b border-border pb-3 last:border-b-0 last:pb-0">
       <h2>
+        {/*
+          Header hit area is 44px on mobile, matching the same tap-target
+          minimum used for the save-heart. On desktop it stays comfortably
+          large for a mouse. Whole row is clickable, not just the caret.
+         */}
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           aria-controls={contentId}
-          className="flex w-full items-center gap-2 py-2 text-left text-xs font-bold uppercase tracking-wide text-muted hover:text-brand"
+          className="group flex min-h-[44px] w-full items-center gap-2 rounded-lg py-2 text-left text-xs font-bold uppercase tracking-wide text-muted transition-colors hover:bg-surface-muted hover:text-brand focus-visible:bg-surface-muted"
         >
           {emoji && (
             <span aria-hidden className="text-sm">
@@ -45,8 +50,28 @@ export function FilterSection({
               {badge}
             </span>
           )}
-          <span aria-hidden className={`transition-transform ${open ? 'rotate-90' : ''}`}>
-            ›
+          {/*
+            Chevron in a filled circle so it reads as a control at a glance,
+            on desktop and mobile. size-6 with a brand-tinted background;
+            rotates 180° when open (down = expanded).
+           */}
+          <span
+            aria-hidden
+            className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong transition-all group-hover:bg-brand group-hover:text-white"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </span>
         </button>
       </h2>

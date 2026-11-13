@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { searchAllSources } from '@/lib/recipes';
 import { getLexicon } from '@/lib/matching/lexicon';
-import { resolvePantry } from '@/lib/matching/normalize';
+import { resolvePantry, suggestCorrection } from '@/lib/matching/normalize';
 import { isExcluded, matchRecipes, suggestUnlocks } from '@/lib/matching/match';
 
 export const dynamic = 'force-dynamic';
@@ -47,6 +47,11 @@ export async function POST(request: Request) {
   // Surfaced back to the user rather than dropped, so "quinoaa" or a genuinely
   // unknown ingredient is visible instead of mysteriously ignored.
   const unrecognized = resolved.filter((r) => r.ingredientId === null).map((r) => r.raw);
+  // A correction to offer for each, where one is close ("corgette" → Courgette).
+  const corrections = unrecognized.flatMap((raw) => {
+    const match = suggestCorrection(raw, getLexicon());
+    return match ? [{ raw, ingredientId: match.id, name: match.name }] : [];
+  });
 
   const pantryIngredientIds = recognized.map((r) => r.ingredientId!);
 
@@ -76,6 +81,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     pantry: recognized,
     unrecognized,
+    corrections,
     counts: {
       total: matches.length,
       ready: matches.filter((m) => m.status === 'ready').length,

@@ -1,0 +1,119 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describeFlags, getFlags } from '@/lib/flags';
+
+/**
+ * Flag parsing has to be strict, or a typo in Vercel silently turns something
+ * on. These tests pin the accepted truthy/falsy vocabulary in place.
+ */
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe('getFlags', () => {
+  it('defaults every shipped flag on when nothing is set', () => {
+    // Every feature has soaked long enough to be the intended experience,
+    // so a fresh deploy with no env vars set gets the full app.
+    const flags = getFlags();
+    expect(flags.kroger).toBe(true);
+    expect(flags.instacart).toBe(true);
+    expect(flags.ratings).toBe(true);
+    expect(flags.aboutPage).toBe(true);
+    expect(flags.privacyPage).toBe(true);
+    expect(flags.staplesPage).toBe(true);
+    expect(flags.savedGrouping).toBe(true);
+    expect(flags.pagination).toBe(true);
+    expect(flags.admin).toBe(true);
+  });
+
+  it('defaults redesign off while v2 soaks', () => {
+    expect(getFlags().redesign).toBe(false);
+  });
+
+  it('defaults ingredientBarB off while version B soaks in Preview', () => {
+    expect(getFlags().ingredientBarB).toBe(false);
+  });
+
+  it('turns ingredientBarB on from NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B', () => {
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B', 'true');
+    expect(getFlags().ingredientBarB).toBe(true);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B', 'off');
+    expect(getFlags().ingredientBarB).toBe(false);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B', 'perhaps');
+    expect(getFlags().ingredientBarB).toBe(false);
+  });
+
+  it('turns redesign on from NEXT_PUBLIC_FEATURE_REDESIGN', () => {
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_REDESIGN', 'true');
+    expect(getFlags().redesign).toBe(true);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_REDESIGN', 'false');
+    expect(getFlags().redesign).toBe(false);
+    // Garbage falls back to the default, which here is off.
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_REDESIGN', 'perhaps');
+    expect(getFlags().redesign).toBe(false);
+  });
+
+  it('reads each flag from its own env var', () => {
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_KROGER', 'false');
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_INSTACART', 'false');
+    const flags = getFlags();
+    expect(flags.kroger).toBe(false);
+    expect(flags.instacart).toBe(false);
+  });
+
+  it.each([
+    ['true', true],
+    ['TRUE', true],
+    ['True', true],
+    ['1', true],
+    ['on', true],
+    ['yes', true],
+    ['  true  ', true],
+    ['false', false],
+    ['0', false],
+    ['off', false],
+    ['no', false],
+    ['', true], // empty string falls through to the default (true for kroger)
+  ])('accepts %s as %s', (raw, expected) => {
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_KROGER', raw);
+    expect(getFlags().kroger).toBe(expected);
+  });
+
+  it('falls back to the default on an unexpected value', () => {
+    // Garbage never flips the intent — every flag currently defaults to true.
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_KROGER', 'perhaps');
+    expect(getFlags().kroger).toBe(true);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_RATINGS', 'maybe');
+    expect(getFlags().ratings).toBe(true);
+  });
+
+  it('lets Vercel disable a currently-on flag', () => {
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_RATINGS', 'false');
+    expect(getFlags().ratings).toBe(false);
+  });
+});
+
+describe('describeFlags', () => {
+  it('lists every flag with its env var name and default', () => {
+    const rows = describeFlags();
+    const kroger = rows.find((r) => r.key === 'kroger');
+    expect(kroger).toEqual({ key: 'kroger', envVar: 'NEXT_PUBLIC_FEATURE_KROGER', default: true });
+    const redesign = rows.find((r) => r.key === 'redesign');
+    expect(redesign).toEqual({
+      key: 'redesign',
+      envVar: 'NEXT_PUBLIC_FEATURE_REDESIGN',
+      default: false,
+    });
+    expect(rows.find((r) => r.key === 'ingredientBarB')).toEqual({
+      key: 'ingredientBarB',
+      envVar: 'NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B',
+      default: false,
+    });
+  });
+
+  it('covers the full FeatureFlags surface', () => {
+    // Whenever a flag is added, this test forces the docs helper to be
+    // updated too — otherwise the .env.example would drift.
+    const rows = describeFlags();
+    const shape = getFlags();
+    expect(rows.map((r) => r.key).sort()).toEqual(Object.keys(shape).sort());
+  });
+});

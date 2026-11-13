@@ -2,20 +2,19 @@ import { DEPARTMENT_BY_CATEGORY, DEPARTMENT_ORDER } from './departments';
 import type { GroceryLineItem, GroceryOffer, GroceryProvider } from './types';
 
 /**
- * Real retail partners: Instacart and Walmart.
+ * Key-gated retail partners.
  *
- * Both are implemented against the real `GroceryProvider` seam and both read
- * their credentials from the environment. Neither invents prices, availability
- * or a checkout URL: without a key they report `configured: false` and the UI
- * says plainly that the connection is not set up, rather than showing a
- * branded button that quietly does nothing.
+ * Implemented against the real `GroceryProvider` seam, reading credentials from
+ * the environment. Nothing here invents prices, availability or a checkout URL:
+ * without a key a partner reports `configured: false` and the UI says plainly
+ * that the connection is not set up, rather than showing a branded button that
+ * quietly does nothing.
  *
  * Wiring one up is a matter of supplying the key and filling in `createCart`
  * against the partner's API — the surrounding app needs no changes.
  *
  *   Instacart  Developer Platform, "Create shopping list page" endpoint.
  *              Set INSTACART_API_KEY.
- *   Walmart    Affiliate / Partner API. Set WALMART_API_KEY.
  */
 
 export class ProviderNotConfiguredError extends Error {
@@ -44,14 +43,6 @@ const PARTNERS: PartnerConfig[] = [
     setupHint:
       'Set INSTACART_API_KEY from the Instacart Developer Platform, then implement createCart against their shopping-list endpoint.',
     deliveryNote: 'Same-day delivery from local stores',
-  },
-  {
-    id: 'walmart',
-    name: 'Walmart+',
-    envVar: 'WALMART_API_KEY',
-    setupHint:
-      'Set WALMART_API_KEY from the Walmart Partner API, then implement createCart against their cart endpoint.',
-    deliveryNote: 'Free delivery on Walmart+ orders',
   },
 ];
 

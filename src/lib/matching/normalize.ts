@@ -320,3 +320,23 @@ export function suggestIngredients(query: string, lexicon: Lexicon, limit = 8): 
   scored.sort((a, b) => a.rank - b.rank || a.ingredient.name.localeCompare(b.ingredient.name));
   return scored.slice(0, limit).map((s) => s.ingredient);
 }
+
+/**
+ * "Did you mean …?" for an entry `resolveIngredient` could not place. Looks
+ * one edit further than the resolver's own typo budget, so it only offers a
+ * correction the shopper still has to accept, then falls back to the best
+ * autocomplete hit. Returns null when nothing is close.
+ */
+export function suggestCorrection(raw: string, lexicon: Lexicon): Ingredient | null {
+  const q = stripQuantities(tokenize(raw)).join(' ');
+  if (q.length < 3) return null;
+  const budget = Math.max(1, fuzzyBudget(q.length) + 1);
+  let best: { id: string; distance: number } | null = null;
+  for (const [phrase, id] of lexicon.phrases) {
+    if (Math.abs(phrase.length - q.length) > budget) continue;
+    const distance = levenshtein(phrase, q);
+    if (distance <= budget && (!best || distance < best.distance)) best = { id, distance };
+  }
+  if (best) return lexicon.byId.get(best.id) ?? null;
+  return suggestIngredients(q, lexicon, 1)[0] ?? null;
+}

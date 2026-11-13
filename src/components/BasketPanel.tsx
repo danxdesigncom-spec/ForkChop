@@ -1,6 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { StorePicker } from './StorePicker';
+import {
+  getStoreServerSnapshot,
+  getStoreSnapshot,
+  setChosenStore,
+  subscribeToStore,
+  type ChosenStore,
+} from '@/lib/store-preference';
 import type { GroceryCart, GroceryCartItem, ProviderSummary } from '@/lib/grocery/types';
 import { formatMoney } from '@/lib/format';
 import { DEPARTMENT_ORDER, departmentIcon } from '@/lib/grocery/departments';
@@ -19,10 +27,12 @@ export interface BasketItem {
 /** The always-available "no storefront" choice, alongside the real providers. */
 const EXPORT_OPTION = 'list';
 
+/** Matches the bound Kroger's cart API and our own /api/kroger/authorize schema enforce. */
+const MAX_QUANTITY = 99;
+
 const PROVIDER_EMOJI: Record<string, string> = {
   instacart: '🥕',
-  walmart: '🔵',
-  mock: '🐷',
+  kroger: '🛒',
 };
 
 interface Props {
@@ -30,6 +40,13 @@ interface Props {
   providers: ProviderSummary[];
   onRemove: (ingredientId: string) => void;
   onClear: () => void;
+  /**
+   * Controlled from PantryApp so the recipe modal can send someone straight
+   * here after they add ingredients, instead of leaving them to find the
+   * basket bar themselves.
+   */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 /**
@@ -39,14 +56,103 @@ interface Props {
  * for payment), a partner that is not connected yet (which says so rather than
  * pretending), or an exportable shopping list that always works.
  */
-export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
-  const [open, setOpen] = useState(false);
+export function BasketPanel({
+  items,
+  providers,
+  onRemove,
+  onClear,
+  open,
+  onOpenChange,
+}: Props) {
+  const setOpen = onOpenChange;
   const [choice, setChoice] = useState<string>(EXPORT_OPTION);
   const [cart, setCart] = useState<GroceryCart | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [handoffPending, setHandoffPending] = useState(false);
+  const [handoffError, setHandoffError] = useState<string | null>(null);
+  /**
+   * Purchase quantity per line, keyed by `ingredientId` — not by `offer.sku`.
+   * The basket holds one line per ingredient, so an ingredient id is unique
+   * here, whereas two ingredients can fuzzy-match the same store product and
+   * so share a UPC; keying on the SKU would silently tie those two lines'
+   * quantities together.
+   *
+   * A provider's `GroceryCartItem.quantity` is only a starting default — this
+   * map is the live source of truth once the shopper touches the stepper, and
+   * everything downstream (line totals, the subtotal/total, and the payload
+   * sent to `/api/kroger/authorize` → Kroger's cart) reads from here.
+   */
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+
+  const quantityFor = useCallback(
+    (item: GroceryCartItem): number => quantities[item.offer.ingredientId] ?? item.quantity,
+    [quantities],
+  );
+
+  const setQuantity = (ingredientId: string, next: number) => {
+    const clamped = Math.min(MAX_QUANTITY, Math.max(1, Math.round(next)));
+    setQuantities((prev) => ({ ...prev, [ingredientId]: clamped }));
+  };
+
+  /** Priced-line total at the shopper's current quantity, not the server's default. */
+  const lineTotalFor = useCallback(
+    (item: GroceryCartItem): number =>
+      item.offer.priced === false ? 0 : item.offer.priceCents * quantityFor(item),
+    [quantityFor],
+  );
+
+  const chosenStore = useSyncExternalStore(
+    subscribeToStore,
+    getStoreSnapshot,
+    getStoreServerSnapshot,
+  );
+
+  /**
+   * Hand the priced basket to the store's OAuth flow.
+   *
+   * The UPCs are POSTed so they never appear in a URL, and the server replies
+   * with the store's consent URL. Navigation is same-tab on purpose: this is a
+   * sign-in flow that has to come back to our callback, and popup blockers eat
+   * `window.open` when it follows an await.
+   */
+  const sendToStoreCart = async (current: GroceryCart) => {
+    if (!current.cartHandoffUrl) return;
+    setHandoffPending(true);
+    setHandoffError(null);
+    try {
+      const res = await fetch(current.cartHandoffUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: current.items
+            .filter((i) => i.offer.priced)
+            .map((i) => ({ upc: i.offer.sku, quantity: quantityFor(i) })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.authorizeUrl) {
+        throw new Error(data.error ?? 'Could not start the handoff.');
+      }
+      window.location.href = data.authorizeUrl as string;
+    } catch (err) {
+      setHandoffError(
+        err instanceof Error
+          ? `${err.message} You can still copy the list and continue below.`
+          : 'Something went wrong. You can still copy the list below.',
+      );
+      setHandoffPending(false);
+    }
+  };
 
   const selectedProvider = providers.find((p) => p.id === choice);
+
+  /**
+   * True when the store gave us no price for anything in the basket — either
+   * pricing isn't configured, or no line matched a product. Distinct from a
+   * genuinely free basket, so the money rows show "—" rather than "$0.00".
+   */
+  const nothingPriced = cart != null && (cart.pricedItemCount ?? 0) === 0;
 
   const groups = useMemo(() => {
     if (!cart) return [];
@@ -66,16 +172,22 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
       .map(([department, groupItems]) => ({
         department,
         items: groupItems,
-        subtotalCents: groupItems.reduce((sum, i) => sum + i.lineTotalCents, 0),
+        subtotalCents: groupItems.reduce((sum, i) => sum + lineTotalFor(i), 0),
+        // A group where nothing could be priced shows a dash, not $0.00 —
+        // same reasoning as the individual lines.
+        hasPricedItem: groupItems.some((i) => i.offer.priced !== false),
       }))
       .sort(
         (a, b) =>
           (rank.get(a.department) ?? order.length) - (rank.get(b.department) ?? order.length) ||
           a.department.localeCompare(b.department),
       );
-  }, [cart]);
+  }, [cart, lineTotalFor]);
 
-  const priceUp = async (providerId: string) => {
+  const subtotalCents = groups.reduce((sum, g) => sum + g.subtotalCents, 0);
+  const totalCents = subtotalCents + (cart?.deliveryFeeCents ?? 0);
+
+  const priceUp = async (providerId: string, locationId?: string) => {
     setLoading(true);
     setError(null);
     setCart(null);
@@ -83,7 +195,12 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
       const res = await fetch('/api/cart', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, provider: providerId }),
+        body: JSON.stringify({
+          items,
+          provider: providerId,
+          // Only Kroger prices per-store today; harmless for the others.
+          locationId: locationId ?? chosenStore?.locationId,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Could not price up the basket');
@@ -99,17 +216,34 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
     setChoice(id);
     setCart(null);
     setError(null);
+    setHandoffError(null);
+    // A different provider means different lines (different SKUs entirely,
+    // since sku is provider-namespaced) — any quantity the shopper set for
+    // the old cart has nothing left to attach to.
+    setQuantities({});
     if (id !== EXPORT_OPTION) {
       const provider = providers.find((p) => p.id === id);
       if (provider?.configured) void priceUp(id);
     }
   };
 
+  /**
+   * Changing store re-prices immediately rather than waiting for the shopper
+   * to re-pick the provider — the prices on screen are now for the wrong shop,
+   * and stale numbers are worse than a brief spinner.
+   */
+  const chooseStore = (store: ChosenStore | null) => {
+    setChosenStore(store);
+    setHandoffError(null);
+    if (choice !== EXPORT_OPTION && store) void priceUp(choice, store.locationId);
+    else setCart(null);
+  };
+
   if (items.length === 0) return null;
 
   return (
     <>
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur print:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">
@@ -118,7 +252,15 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
             <p className="truncate text-xs text-muted">{items.map((i) => i.name).join(', ')}</p>
           </div>
 
-          <button type="button" onClick={onClear} className="text-xs text-muted hover:text-foreground">
+          <button
+            type="button"
+            onClick={() => {
+              onClear();
+              setCart(null);
+              setQuantities({});
+            }}
+            className="text-xs text-muted hover:text-foreground"
+          >
             Clear
           </button>
 
@@ -255,6 +397,17 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
                 </div>
               )}
 
+              {/*
+                Store picker sits above the priced basket, because which store
+                you're pricing against is the thing that determines every
+                number below it.
+               */}
+              {choice === 'kroger' && selectedProvider?.configured && (
+                <div className="mb-3">
+                  <StorePicker chosen={chosenStore} onChoose={chooseStore} />
+                </div>
+              )}
+
               {choice !== EXPORT_OPTION && loading && (
                 <p className="py-6 text-center text-sm text-muted">Pricing your basket…</p>
               )}
@@ -276,7 +429,9 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
                           <span className="font-normal text-muted">({group.items.length})</span>
                         </span>
                         <span className="text-xs font-semibold tabular-nums text-muted">
-                          {formatMoney(group.subtotalCents, cart.currency)}
+                          {group.hasPricedItem
+                            ? formatMoney(group.subtotalCents, cart.currency)
+                            : '—'}
                         </span>
                       </h3>
 
@@ -295,9 +450,56 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
                               )}
                             </div>
                             <div className="text-right">
+                              {/*
+                                An unpriced line shows a dash, never $0.00 —
+                                "we couldn't price this" and "this is free"
+                                must not look the same.
+                               */}
                               <p className="text-sm tabular-nums">
-                                {formatMoney(item.lineTotalCents, cart.currency)}
+                                {item.offer.priced === false
+                                  ? '—'
+                                  : formatMoney(lineTotalFor(item), cart.currency)}
                               </p>
+                              {item.offer.onPromotion && (
+                                <p className="text-[10px] font-bold uppercase text-score-high">
+                                  On offer
+                                </p>
+                              )}
+                              {/*
+                                Only a priced line has a real UPC and a
+                                per-unit price to multiply — an unpriced line
+                                has neither, so there's nothing a quantity
+                                control could change.
+                               */}
+                              {item.offer.priced && (
+                                <div className="mt-1 flex items-center justify-end gap-1">
+                                  <button
+                                    type="button"
+                                    aria-label={`Decrease quantity of ${item.offer.title}`}
+                                    onClick={() =>
+                                      setQuantity(item.offer.ingredientId, quantityFor(item) - 1)
+                                    }
+                                    disabled={quantityFor(item) <= 1}
+                                    className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-xs leading-none hover:border-brand disabled:opacity-40"
+                                  >
+                                    −
+                                  </button>
+                                  <span className="w-5 text-center text-xs tabular-nums" aria-live="polite">
+                                    {quantityFor(item)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    aria-label={`Increase quantity of ${item.offer.title}`}
+                                    onClick={() =>
+                                      setQuantity(item.offer.ingredientId, quantityFor(item) + 1)
+                                    }
+                                    disabled={quantityFor(item) >= MAX_QUANTITY}
+                                    className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-xs leading-none hover:border-brand disabled:opacity-40"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => {
@@ -324,40 +526,151 @@ export function BasketPanel({ items, providers, onRemove, onClear }: Props) {
                   <div className="mt-3 space-y-1.5 border-t border-border pt-3 text-sm">
                     <div className="flex justify-between text-muted">
                       <span>Subtotal</span>
+                      {/*
+                        Nothing priced means we know nothing about the cost —
+                        which is not the same as it costing nothing. Same rule
+                        as the line items and the department headers.
+                       */}
                       <span className="tabular-nums">
-                        {formatMoney(cart.subtotalCents, cart.currency)}
+                        {nothingPriced ? '—' : formatMoney(subtotalCents, cart.currency)}
                       </span>
                     </div>
                     <div className="flex justify-between text-muted">
                       <span>Delivery</span>
                       <span className="tabular-nums">
-                        {cart.deliveryFeeCents === 0
-                          ? 'Free'
-                          : formatMoney(cart.deliveryFeeCents, cart.currency)}
+                        {nothingPriced
+                          ? '—'
+                          : cart.deliveryFeeCents === 0
+                            ? 'Free'
+                            : formatMoney(cart.deliveryFeeCents, cart.currency)}
                       </span>
                     </div>
                     <div className="flex justify-between pt-1.5 font-semibold">
-                      <span>Total</span>
+                      <span className="flex items-center gap-1.5">
+                        Total
+                        {cart.priceDisclaimer && (
+                          <span
+                            className="rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase"
+                            style={{
+                              backgroundColor: 'var(--score-mid-soft)',
+                              color: 'var(--score-mid)',
+                            }}
+                          >
+                            Est.
+                          </span>
+                        )}
+                      </span>
                       <span className="tabular-nums">
-                        {formatMoney(cart.totalCents, cart.currency)}
+                        {nothingPriced ? '—' : formatMoney(totalCents, cart.currency)}
                       </span>
                     </div>
+
+                    {/*
+                      With no prices at all, say so plainly instead of leaving
+                      a row of dashes to be interpreted.
+                     */}
+                    {nothingPriced && (
+                      <p className="pt-1 text-xs text-muted">
+                        No prices available for this basket — it&apos;s still a complete
+                        shopping list.
+                      </p>
+                    )}
+
                     <p className="pt-1 text-xs text-muted">
                       Estimated delivery {cart.estimatedDelivery}
                     </p>
                   </div>
 
-                  <a
-                    href={cart.checkoutUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 block w-full rounded-xl bg-brand px-4 py-3 text-center text-sm font-semibold text-white hover:bg-brand-strong"
-                  >
-                    Continue to {cart.providerName}
-                  </a>
+                  {/*
+                    Money the shopper might budget against must never look more
+                    certain than it is. The provider decides the wording; the UI
+                    only guarantees it appears next to the total.
+                   */}
+                  {cart.priceDisclaimer && (
+                    <div className="mt-3 rounded-lg bg-score-mid-soft p-3 text-xs text-score-mid">
+                      <p className="font-semibold">{cart.priceDisclaimer}</p>
+                      {typeof cart.pricedItemCount === 'number' &&
+                        cart.pricedItemCount < cart.items.length && (
+                          <p className="mt-1">
+                            Priced {cart.pricedItemCount} of {cart.items.length} items — the rest
+                            weren&apos;t matched to a product and aren&apos;t counted in the total.
+                          </p>
+                        )}
+                    </div>
+                  )}
+
+                  {/*
+                    When the provider hands over a `clipboardText` (Kroger,
+                    because their site can't accept a full list via URL), copy
+                    it to the clipboard just before the tab opens. Clipboard
+                    writes must run from a user gesture, so the anchor is
+                    swapped for a button — a plain anchor's default
+                    navigation would race the async copy.
+                   */}
+                  {/*
+                    The best available handoff: put the items straight into the
+                    shopper's store account so they don't re-pick everything.
+                    Only offered when the provider priced real SKUs, since
+                    that's where the UPCs come from. Falls back to the deep link
+                    below if the store refuses (consent declined, scope not
+                    granted) — see /api/kroger/callback.
+                   */}
+                  {cart.cartHandoffUrl && (
+                    <button
+                      type="button"
+                      disabled={handoffPending}
+                      onClick={() => void sendToStoreCart(cart)}
+                      className="mt-4 block w-full rounded-xl bg-brand px-4 py-3 text-center text-sm font-semibold text-white hover:bg-brand-strong disabled:opacity-60"
+                    >
+                      {handoffPending
+                        ? 'Opening…'
+                        : (() => {
+                            const n = cart.pricedItemCount ?? cart.items.length;
+                            return `Add ${n} item${n === 1 ? '' : 's'} to my ${cart.providerName} cart`;
+                          })()}
+                    </button>
+                  )}
+
+                  {handoffError && (
+                    <p role="alert" className="mt-2 text-xs text-score-mid">
+                      {handoffError}
+                    </p>
+                  )}
+
+                  {cart.clipboardText ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(cart.clipboardText!);
+                        } catch {
+                          // If the browser refuses the copy (permission or
+                          // insecure context) the handoff should still happen.
+                        }
+                        window.open(cart.checkoutUrl, '_blank', 'noopener,noreferrer');
+                      }}
+                      className={`mt-2 block w-full rounded-xl px-4 py-3 text-center text-sm font-semibold ${
+                        cart.cartHandoffUrl
+                          ? 'border-2 border-border hover:border-brand hover:text-brand'
+                          : 'bg-brand text-white hover:bg-brand-strong'
+                      }`}
+                    >
+                      Copy list & continue to {cart.providerName}
+                    </button>
+                  ) : (
+                    <a
+                      href={cart.checkoutUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-4 block w-full rounded-xl bg-brand px-4 py-3 text-center text-sm font-semibold text-white hover:bg-brand-strong"
+                    >
+                      Continue to {cart.providerName}
+                    </a>
+                  )}
                   <p className="mt-2 text-center text-xs text-muted">
-                    You complete payment on the store&apos;s own site. ForkChop never takes payment
-                    details. This build uses a demo store, so the link is a placeholder.
+                    {cart.clipboardText
+                      ? `Your list is on the clipboard — paste it into ${cart.providerName}'s search or cart. ForkChop never takes payment details.`
+                      : 'You complete payment on the store’s own site. ForkChop never takes payment details.'}
                   </p>
                 </>
               )}

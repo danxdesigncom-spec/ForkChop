@@ -2,7 +2,9 @@ import { getAllIngredients, getAllTags, getFacets } from '@/lib/db/queries';
 import { describeGroceryProviders } from '@/lib/grocery';
 import { getUser } from '@/lib/supabase/server';
 import { SUPABASE_SETUP_HINT, isSupabaseConfigured } from '@/lib/supabase/config';
+import { getFlags } from '@/lib/flags';
 import { PantryApp } from '@/components/PantryApp';
+import { PantryAppV2 } from '@/components/v2/PantryAppV2';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,16 +14,29 @@ export default async function Home() {
   const ingredients = getAllIngredients();
   // Counts behind each filter option, so the UI can hide dead ends.
   const facets = getFacets();
-  // Which storefronts exist and which are actually connected.
-  const providers = describeGroceryProviders();
+  // Read once per request and passed through so client and server agree.
+  const flagsForProviders = getFlags();
+  // Which storefronts exist and which are actually connected. Flagged-off
+  // providers (e.g. Instacart when NEXT_PUBLIC_FEATURE_INSTACART=false) are
+  // dropped here so the picker never shows them.
+  const providers = describeGroceryProviders({
+    hiddenIds: [
+      ...(flagsForProviders.instacart ? [] : ['instacart']),
+      // Kroger is only registered when its flag is on, so nothing to hide;
+      // listed here for symmetry so a reviewer sees every flag in one place.
+      ...(flagsForProviders.kroger ? [] : ['kroger']),
+    ],
+  });
   // Resolved server-side so the header renders signed-in on first paint,
   // rather than flashing "Log in" and then swapping.
   const user = await getUser();
+  const flags = flagsForProviders;
+  const App = flags.redesign ? PantryAppV2 : PantryApp;
 
   return (
     <>
       {/* The header lives inside PantryApp: its nav drives the same view state. */}
-      <PantryApp
+      <App
         allTags={tags}
         ingredients={ingredients}
         facets={facets}
@@ -29,10 +44,30 @@ export default async function Home() {
         userEmail={user?.email ?? null}
         authConfigured={isSupabaseConfigured()}
         authSetupHint={SUPABASE_SETUP_HINT}
+        flags={flags}
       />
 
-      <footer className="border-t border-border px-4 py-6 text-center text-xs text-muted print:hidden">
-        ForkChop builds your basket and hands off to the store — it never takes payment details.
+      <footer className="border-t border-border px-4 py-6 text-center text-xs text-muted">
+        <p>ForkChop builds your basket and hands off to the store — it never takes payment details.</p>
+        {(flags.aboutPage || flags.privacyPage || flags.staplesPage) && (
+          <p className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
+            {flags.aboutPage && (
+              <a href="/about" className="inline-flex min-h-6 items-center text-brand hover:underline">
+                About
+              </a>
+            )}
+            {flags.staplesPage && (
+              <a href="/staples" className="inline-flex min-h-6 items-center text-brand hover:underline">
+                Staples
+              </a>
+            )}
+            {flags.privacyPage && (
+              <a href="/privacy" className="inline-flex min-h-6 items-center text-brand hover:underline">
+                Privacy policy
+              </a>
+            )}
+          </p>
+        )}
       </footer>
     </>
   );
