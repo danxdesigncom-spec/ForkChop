@@ -9,5 +9,5 @@ const db = getDb();
 const result = seed(db);
 
 console.log(
-  `Seeded ${result.recipes} recipes, ${result.ingredients} ingredients, ${result.aliases} lookup phrases.`,
+  `Seeded ${result.recipes} recipes (+${result.imported} imported), ${result.ingredients} ingredients, ${result.aliases} lookup phrases.`,
 );

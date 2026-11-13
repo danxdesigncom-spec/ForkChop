@@ -47,6 +47,8 @@ export interface FeatureFlags {
   redesign: boolean;
   /** v2 ingredient bar, version B: input first + kitchen tray. */
   ingredientBarB: boolean;
+  /** Include TheMealDB recipes in the local catalog. */
+  catalogThemealdb: boolean;
 }
 
 /**
@@ -63,6 +65,8 @@ export interface FeatureFlags {
  * is switched on in Vercel Preview only until the v2 rollout. `ingredientBarB`
  * (docs/redesign/07-ingredient-bar-b.md) follows the same pattern, and only has
  * an effect when `redesign` is also on.
+ * `catalogThemealdb` (docs/catalog/) is off by default for the same reason: the
+ * import soaks in Preview first.
  */
 const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
   kroger: true,
@@ -76,6 +80,7 @@ const DEFAULTS: Record<keyof FeatureFlags, boolean> = {
   admin: true,
   redesign: false,
   ingredientBarB: false,
+  catalogThemealdb: false,
 };
 
 /**
@@ -94,6 +99,7 @@ const ENV_VARS: Record<keyof FeatureFlags, string> = {
   admin: 'NEXT_PUBLIC_FEATURE_ADMIN',
   redesign: 'NEXT_PUBLIC_FEATURE_REDESIGN',
   ingredientBarB: 'NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B',
+  catalogThemealdb: 'NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB',
 };
 
 /**

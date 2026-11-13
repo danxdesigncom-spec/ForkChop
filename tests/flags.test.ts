@@ -28,6 +28,17 @@ describe('getFlags', () => {
     expect(getFlags().redesign).toBe(false);
   });
 
+  it('defaults catalogThemealdb off while the import soaks', () => {
+    expect(getFlags().catalogThemealdb).toBe(false);
+  });
+
+  it('turns catalogThemealdb on from NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB', () => {
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB', 'true');
+    expect(getFlags().catalogThemealdb).toBe(true);
+    vi.stubEnv('NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB', 'perhaps');
+    expect(getFlags().catalogThemealdb).toBe(false);
+  });
+
   it('defaults ingredientBarB off while version B soaks in Preview', () => {
     expect(getFlags().ingredientBarB).toBe(false);
   });
@@ -105,6 +116,11 @@ describe('describeFlags', () => {
     expect(rows.find((r) => r.key === 'ingredientBarB')).toEqual({
       key: 'ingredientBarB',
       envVar: 'NEXT_PUBLIC_FEATURE_INGREDIENT_BAR_B',
+      default: false,
+    });
+    expect(rows.find((r) => r.key === 'catalogThemealdb')).toEqual({
+      key: 'catalogThemealdb',
+      envVar: 'NEXT_PUBLIC_FEATURE_CATALOG_THEMEALDB',
       default: false,
     });
   });

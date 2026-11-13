@@ -279,6 +279,57 @@ export function resolveIngredient(raw: string, lexicon: Lexicon): ResolvedIngred
   return miss;
 }
 
+/**
+ * The most specific partial match (stage 5 of `resolveIngredient`), with every
+ * ingredient id tied for it rather than whichever one the lexicon happened to
+ * yield first, plus the words of the input that the match did NOT cover.
+ *
+ * The pantry input can live with first-wins and leftovers because the user
+ * sees the chip and can correct it. A recipe import can't: "Peanut Oil" ties
+ * `peanut` and `oil`, and "Water Chestnut" matches `water` with "chestnut" left
+ * over, which is a different thing entirely. The catalog importer uses both
+ * to tell a safe partial match from a guess. Same preprocessing as the
+ * resolver, so the two never disagree about what the phrase contains.
+ */
+export function partialMatch(raw: string, lexicon: Lexicon): { ids: string[]; extras: string[] } {
+  const singular = stripQuantities(tokenize(raw.trim())).map(singularizeWord);
+  const withoutStopWords = singular.filter((t) => !STOP_WORDS.has(t));
+  const stripped = withoutStopWords.filter((t) => !PREP_WORDS.has(t));
+  const searchTokens = stripped.length > 0 ? stripped : singular;
+  const searchSet = new Set(searchTokens);
+
+  let bestLength = 0;
+  let best = new Map<string, Set<string>>(); // id -> tokens covered by its best phrases
+  for (const [phrase, id] of lexicon.phrases) {
+    const phraseTokens = phrase.split(' ');
+    if (phraseTokens.length > searchTokens.length) continue;
+    if (!phraseTokens.every((t) => searchSet.has(t))) continue;
+    if (phraseTokens.length > bestLength) {
+      bestLength = phraseTokens.length;
+      best = new Map();
+    }
+    if (phraseTokens.length === bestLength) {
+      const covered = best.get(id) ?? new Set<string>();
+      phraseTokens.forEach((t) => covered.add(t));
+      best.set(id, covered);
+    }
+  }
+  const ids = [...best.keys()].sort();
+  const covered = ids.length === 1 ? best.get(ids[0])! : new Set<string>();
+  const extras = ids.length === 1 ? [...new Set(searchTokens.filter((t) => !covered.has(t)))] : [];
+  return { ids, extras };
+}
+
+/** Every id tied for the most specific partial match. See `partialMatch`. */
+export function partialCandidates(raw: string, lexicon: Lexicon): string[] {
+  return partialMatch(raw, lexicon).ids;
+}
+
+/** Words as the resolver sees them: lower-cased, quantities dropped, singularised. */
+export function ingredientTokens(raw: string): string[] {
+  return stripQuantities(tokenize(raw.trim())).map(singularizeWord);
+}
+
 /** Resolve a whole pantry, de-duplicating repeats that map to the same id. */
 export function resolvePantry(inputs: string[], lexicon: Lexicon): ResolvedIngredient[] {
   const results: ResolvedIngredient[] = [];

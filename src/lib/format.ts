@@ -9,6 +9,17 @@ export function formatMoney(cents: number, currency = 'GBP'): string {
   }).format(cents / 100);
 }
 
+/**
+ * Quickest first, with unknown times after every known one. Recipes that all
+ * have times (the whole seed corpus) sort exactly as plain subtraction did.
+ */
+export function compareMinutes(a: number | null, b: number | null): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a - b;
+}
+
 export function formatMinutes(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
@@ -16,8 +27,16 @@ export function formatMinutes(minutes: number): string {
   return rest === 0 ? `${hours} hr` : `${hours} hr ${rest} min`;
 }
 
-/** "400 g chopped tomatoes", falling back gracefully when there is no amount. */
-export function formatAmount(ingredient: Pick<RecipeIngredient, 'quantity' | 'unit' | 'note'>): string {
+/**
+ * "400 g chopped tomatoes", falling back gracefully when there is no amount.
+ * Imported recipes carry the source's own wording in `display`, which wins: it
+ * is what the recipe author wrote, and the parsed fields are only an
+ * approximation of it.
+ */
+export function formatAmount(
+  ingredient: Pick<RecipeIngredient, 'quantity' | 'unit' | 'note'> & { display?: string | null },
+): string {
+  if (ingredient.display) return ingredient.display;
   const parts: string[] = [];
   if (ingredient.quantity != null) {
     parts.push(Number.isInteger(ingredient.quantity) ? String(ingredient.quantity) : String(ingredient.quantity));

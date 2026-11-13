@@ -63,14 +63,19 @@ export function RecipeCardV2({
 
   const meta = (
     <ul className="flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-muted">
-      <li className="inline-flex items-center gap-1 whitespace-nowrap">
-        <Clock aria-hidden="true" size={14} />
-        {formatMinutes(recipe.totalMinutes)}
-      </li>
-      <li className="inline-flex items-center gap-1 whitespace-nowrap">
-        <Users aria-hidden="true" size={14} />
-        Serves {recipe.servings}
-      </li>
+      {/* Hidden, not "0 min", when the source doesn't publish it (TheMealDB). */}
+      {recipe.totalMinutes != null && (
+        <li className="inline-flex items-center gap-1 whitespace-nowrap">
+          <Clock aria-hidden="true" size={14} />
+          {formatMinutes(recipe.totalMinutes)}
+        </li>
+      )}
+      {recipe.servings != null && (
+        <li className="inline-flex items-center gap-1 whitespace-nowrap">
+          <Users aria-hidden="true" size={14} />
+          Serves {recipe.servings}
+        </li>
+      )}
       {recipe.cuisine && <li className="whitespace-nowrap">{recipe.cuisine}</li>}
     </ul>
   );
